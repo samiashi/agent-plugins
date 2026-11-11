@@ -9,8 +9,10 @@ Commands:
   notes PLUGIN VERSION   Print that version's changelog section.
   release-notes PLUGIN VERSION [--target REF] [--repo OWNER/NAME]
                          Print the release notes: the changelog section, then a Contributors
-                         list. The list has the GitHub users whose commits changed the plugin's
-                         directory since its previous release tag, up to REF (default HEAD).
+                         list. The list has everyone whose commits (co-authors included, bots
+                         excluded) changed the plugin's directory since its previous release
+                         tag, up to REF (default HEAD): @login for a linked account, otherwise
+                         the git name.
 
 A plugin's shipped files are everything under its directory except README.md and
 CHANGELOG.md. Tags look like <plugin>--v<version>.
@@ -209,40 +211,101 @@ def previous_tag(root, plugin, version):
     return max(older)[1] if older else None
 
 
-def github_login(repo, sha):
-    """The GitHub login that GitHub links to a commit's author, or None if there isn't one.
+LOOKUP_TIMEOUT = 20  # seconds per GitHub commit lookup
+FIELD, CO_AUTHORS = "\x1f", "\x1e"  # separators no author name can contain; records are NUL-separated
+NOREPLY = re.compile(r"^(?:\d+\+)?([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)@users\.noreply\.github\.com$", re.I)
+TRAILER = re.compile(r"^\s*(.*?)\s*<([^<>]+)>\s*$")
+ORIGIN = re.compile(r"github\.com[:/]+([^/:]+/[^/]+?)(?:\.git)?/*$")
 
-    Also None when GitHub can't say, for example for a commit it doesn't have yet, so a failed
-    lookup costs that person their @mention rather than the whole release.
+
+def github_author(repo, sha):
+    """(login, is_bot) for the account GitHub links to a commit's author, or None.
+
+    None also when GitHub can't be asked or doesn't answer in time, for example for a commit it
+    doesn't have yet. That costs the person their @mention, with a warning, rather than the release.
     """
-    proc = subprocess.run(
-        ["gh", "api", f"repos/{repo}/commits/{sha}", "--jq", ".author.login // empty"],
-        capture_output=True,
-        text=True,
-    )
-    return (proc.stdout.strip() or None) if proc.returncode == 0 else None
+    try:
+        proc = subprocess.run(
+            ["gh", "api", f"repos/{repo}/commits/{sha}", "--jq", '.author // empty | "\\(.login)\\t\\(.type)"'],
+            capture_output=True,
+            text=True,
+            timeout=LOOKUP_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(
+            f"warning: couldn't look up commit {sha[:10]} on GitHub ({exc}); listing its author by name",
+            file=sys.stderr,
+        )
+        return None
+    if proc.returncode:
+        print(f"warning: GitHub lookup of commit {sha[:10]} failed; listing its author by name", file=sys.stderr)
+        return None
+    login, _, kind = proc.stdout.strip().partition("\t")
+    return (login, kind == "Bot") if login else None
 
 
 def default_repo(root):
     if os.environ.get("GITHUB_REPOSITORY"):
         return os.environ["GITHUB_REPOSITORY"]
     url = git(root, "remote", "get-url", "origin").strip()
-    return url.split("github.com", 1)[1].lstrip(":/").removesuffix(".git")
+    match = ORIGIN.search(url)
+    if not match:
+        raise SystemExit(f"error: can't tell the GitHub repository from origin {url!r}; pass --repo OWNER/NAME")
+    return match.group(1)
 
 
-def contributors(root, plugin, version, target, repo, lookup=github_login):
-    """`@login` (or the git author name when GitHub links no account) for each person, bots excluded."""
+def display_name(name):
+    """A git name as inert text: one line, in code formatting, so it can't link to or mention anyone."""
+    cleaned = " ".join(name.replace("`", "'").split())
+    return f"`{cleaned}`" if cleaned else "`(no name)`"
+
+
+def contributors(root, plugin, version, target, repo, lookup=github_author):
+    """Everyone whose commits changed the plugin since its previous release, bots excluded.
+
+    People are told apart by email. Commit authors and Co-authored-by trailers both count. Each
+    person is shown as @login when GitHub links an account (or their email is a GitHub noreply
+    address), and otherwise by their git name.
+    """
+    if git(root, "rev-parse", "--is-shallow-repository").strip() == "true":
+        raise SystemExit(
+            "error: this is a shallow clone, so release history is incomplete; run `git fetch --unshallow`"
+        )
     directory = plugin_dirs(root)[plugin].relative_to(root).as_posix()
     previous = previous_tag(root, plugin, version)
     revisions = f"{previous}..{target}" if previous else target
-    people = {}
-    for line in git(root, "log", "--format=%H%x09%an", revisions, "--", directory).splitlines():
-        sha, name = line.split("\t", 1)
-        login = lookup(repo, sha)
-        if (login or name).endswith("[bot]"):
+    trailers = "%(trailers:key=Co-authored-by,valueonly,separator=%x1e)"
+    log = git(root, "log", "-z", f"--format=%H%x1f%ae%x1f%an%x1f{trailers}", revisions, "--", directory)
+
+    people = {}  # lower-cased email -> {"name", "login", "bot"}
+
+    def add(email, name, login=None, bot=False):
+        noreply = NOREPLY.match(email)
+        login = login or (noreply.group(1) if noreply else None)
+        person = people.setdefault(email.lower(), {"name": name, "login": None, "bot": False})
+        person["login"] = person["login"] or login
+        person["bot"] = person["bot"] or bot or (login or name).endswith("[bot]")
+
+    for record in log.split("\0"):
+        if not record.strip():
             continue
-        people.setdefault((login or name).lower(), f"@{login}" if login else name)
-    return sorted(people.values(), key=str.lower)
+        sha, email, name, co_authors = record.lstrip("\n").split(FIELD, 3)
+        found = lookup(repo, sha)
+        add(email, name, *(found or ()))
+        for trailer in co_authors.split(CO_AUTHORS):
+            match = TRAILER.match(trailer)
+            if match:
+                add(match.group(2), match.group(1))
+
+    shown = {}
+    for email, person in people.items():
+        if person["bot"]:
+            continue
+        if person["login"]:
+            shown.setdefault(("login", person["login"].lower()), f"@{person['login']}")
+        else:
+            shown.setdefault(("email", email), display_name(person["name"]))
+    return sorted(shown.values(), key=lambda s: s.strip("`@").lower())
 
 
 def cmd_release_notes(root, plugin, version, target, repo, lookup):
@@ -259,7 +322,7 @@ def cmd_release_notes(root, plugin, version, target, repo, lookup):
     return 0
 
 
-def main(argv=None, lookup=github_login):
+def main(argv=None, lookup=github_author):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command", required=True)
