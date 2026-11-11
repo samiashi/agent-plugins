@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 7
+      default-days: 6
     groups:
       actions:
         patterns: ["*"]
@@ -14,7 +14,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 7
+      default-days: 6
     groups:
       dev-tools:
         patterns: ["*"]
@@ -23,7 +23,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 7
+      default-days: 6
     groups:
       claude-code:
         patterns: ["*"]

@@ -5,10 +5,12 @@ version = "0"
 requires-python = ">=3.11"
 
 [dependency-groups]
-dev = ["ruff==0.17.4", "zizmor==1.32.0"]
+dev = ["ruff==0.17.3", "zizmor==1.32.0"]
 
 [tool.uv]
 package = false
+# Supply-chain cooldown: only resolve versions published at least 6 days ago.
+exclude-newer = "6 days"
 
 [tool.ruff]
 line-length = 120
