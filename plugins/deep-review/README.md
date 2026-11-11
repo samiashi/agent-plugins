@@ -110,5 +110,5 @@ Change these with `/deep-review:setup` or `/config`.
 
 - Claude Code 2.1.271 or later.
 - The `gh` CLI, signed in.
-- `python3`.
+- `python3`, version 3.9 or later. CI tests every version from 3.9 to 3.15.
 - The Claude desktop app, for the scheduled pass. Without it, run `/loop 15m /deep-review:auto` in a session you keep open.

@@ -37,6 +37,11 @@ NOW = dt.datetime(2026, 11, 11, 12, 0, tzinfo=dt.timezone.utc)
 MARKED = pr_mod.MARKER + ": the cache key ignores the tenant."
 READY = "Reviewed at a1a1a1a. No blocking issues; ready for approval. 0 non-blocking comments inline."
 COMMENT_ONLY = "No verdict: required check `ci` is failing. 1 non-blocking finding inline."
+SKILL = REPO_ROOT / "plugins/deep-review/skills/review/SKILL.md"
+
+
+def marked_body(text, kind):
+    return f"{text}\n\n<!-- deep-review-verdict: {kind} -->"
 
 
 def ago(minutes):
@@ -199,9 +204,12 @@ class EvaluateTests(unittest.TestCase):
     def setUp(self):
         self.fake = FakeGitHub()
         self.checks = mock.Mock(return_value=True)
+        # By default the required checks pass and finished after any review in these tests.
+        self.state = mock.Mock(return_value=(True, NOW))
         for patcher in (
             mock.patch.object(pr_mod, "gh", self.fake),
             mock.patch.object(pr_mod, "required_checks_pass", self.checks),
+            mock.patch.object(pr_mod, "required_checks_state", self.state),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -270,15 +278,85 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(self.evaluate()[1], [f"head moved {OLD[:10]} -> {HEAD[:10]}"])
         self.checks.assert_not_called()
 
-    # Bug: the review skill writes a comment-only body as "why there is no verdict, and the finding counts"
-    # (skills/review/SKILL.md:395), with no "Reviewed at "/"Blocking:" prefix. With no inline findings,
-    # evaluate() returns not-deep (pending_reviews.py:140-143), so the checks-now-pass follow-up never fires.
-    @unittest.expectedFailure
     def test_comment_only_review_without_findings_follows_up_when_checks_pass(self):
-        self.fake.reviews[self.key] = [review(body="No verdict: required check `ci` is failing. 0 findings.")]
+        # A clean PR reviewed comment-only because a required check failed has no inline findings;
+        # the verdict marker alone makes it a deep review.
+        body = marked_body("No verdict: required check `ci` is failing. 0 findings.", "comment")
+        self.fake.reviews[self.key] = [review(body=body)]
         deep, reasons, _ = self.evaluate()
         self.assertTrue(deep)
         self.assertEqual(reasons, ["last verdict was comment-only and required checks now pass"])
+
+    def test_checks_that_finished_before_the_comment_only_review_do_not_follow_up(self):
+        self.fake.deep_review(self.key, body=COMMENT_ONLY, at=30)
+        self.state.return_value = (True, NOW - dt.timedelta(minutes=45))
+        self.assertEqual(self.evaluate(), (True, [], NOW - dt.timedelta(minutes=30)))
+        self.state.assert_called_once_with(REPO, 1, HEAD)
+
+    def test_checks_finishing_exactly_at_the_review_do_not_follow_up(self):
+        self.fake.deep_review(self.key, body=COMMENT_ONLY, at=30)
+        self.state.return_value = (True, NOW - dt.timedelta(minutes=30))
+        self.assertEqual(self.evaluate()[1], [])
+
+    def test_finish_time_is_compared_with_the_verdict_not_a_later_empty_review(self):
+        # A REST thread reply creates an empty-body review after the verdict; it isn't the verdict.
+        self.fake.deep_review(self.key, body=COMMENT_ONLY, at=60)
+        self.fake.reviews[self.key].append(review(at=10, body=""))
+        self.state.return_value = (True, NOW - dt.timedelta(minutes=30))
+        self.assertEqual(self.evaluate()[1], ["last verdict was comment-only and required checks now pass"])
+
+    def test_rollup_that_does_not_pass_is_pending(self):
+        # required_checks_pass and the rollup read can disagree, e.g. a check re-ran between them.
+        self.fake.deep_review(self.key, body=COMMENT_ONLY)
+        self.state.return_value = (False, NOW)
+        self.assertEqual(self.evaluate()[1], ["__checks_pending__"])
+
+    def test_unreadable_rollup_is_pending_so_a_later_scan_retries(self):
+        self.fake.deep_review(self.key, body=COMMENT_ONLY)
+        for error in (subprocess.CalledProcessError(1, ["gh"]), json.JSONDecodeError("x", "", 0), TypeError("None")):
+            with self.subTest(error=type(error).__name__):
+                self.state.side_effect = error
+                self.assertEqual(self.evaluate()[1], ["__checks_pending__"])
+
+    def test_latest_marked_verdict_wins_over_a_later_unmarked_review(self):
+        self.fake.reviews[self.key] = [
+            review(at=60, body=marked_body("Reviewed at a1a1a1a. No blocking issues.", "ready")),
+            review(at=10, body="Thanks, will merge after CI."),
+        ]
+        self.fake.comments[self.key] = []
+        self.assertEqual(self.evaluate()[1], [])
+        self.checks.assert_not_called()
+
+    def test_the_closing_marker_wins_over_a_quoted_one(self):
+        body = marked_body("Finding quotes `<!-- deep-review-verdict: ready -->` in a title.", "comment")
+        self.assertEqual(pr_mod.verdict_kind(review(body=body)), "comment")
+
+    def test_passing_checks_without_a_finish_time_do_not_follow_up(self):
+        self.fake.deep_review(self.key, body=COMMENT_ONLY)
+        self.state.return_value = (True, None)
+        self.assertEqual(self.evaluate()[1], [])
+
+    def test_marked_ready_verdict_does_not_retrigger_whatever_its_wording(self):
+        self.fake.deep_review(self.key, body=marked_body("No blocking issues at a1a1a1a.", "ready"))
+        self.assertEqual(self.evaluate(), (True, [], NOW - dt.timedelta(minutes=90)))
+        self.checks.assert_not_called()
+
+    def test_marked_comment_verdict_follows_up_even_with_a_reviewed_at_prefix(self):
+        body = marked_body("Reviewed at a1a1a1a without a verdict: a lens could not run.", "comment")
+        self.fake.deep_review(self.key, body=body)
+        self.assertEqual(self.evaluate()[1], ["last verdict was comment-only and required checks now pass"])
+
+    def test_verdict_marker_alone_makes_a_review_deep(self):
+        for kind in ("approve", "ready", "changes", "comment"):
+            with self.subTest(kind=kind):
+                self.fake.reviews[self.key] = [review(at=30, body=marked_body("Some summary.", kind))]
+                self.fake.comments[self.key] = []
+                self.assertTrue(self.evaluate()[0])
+
+    def test_skill_documents_every_verdict_marker_the_scanner_reads(self):
+        text = SKILL.read_text()
+        for kind in pr_mod.VERDICT_KINDS:
+            self.assertIn(f"<!-- deep-review-verdict: {kind} -->", text)
 
 
 class ScanTests(StateTestCase):
@@ -287,12 +365,14 @@ class ScanTests(StateTestCase):
         self.fake = FakeGitHub()
         self.clones = {"octo/app": "/clones/app", "zeta/lib": "/clones/lib"}
         self.checks = mock.Mock(return_value=False)
+        self.state = mock.Mock(return_value=(True, NOW))
 
     def scan(self, review_requests=True):
         with (
             mock.patch.object(pr_mod, "gh", self.fake),
             mock.patch.object(pr_mod, "local_clones", return_value=self.clones),
             mock.patch.object(pr_mod, "required_checks_pass", self.checks),
+            mock.patch.object(pr_mod, "required_checks_state", self.state),
         ):
             return pr_mod.scan(pathlib.Path("/clones"), review_requests)
 
@@ -451,16 +531,18 @@ class ScanTests(StateTestCase):
         self.assertFalse(any(c[:2] == ("search", "prs") for c in self.fake.calls))
         self.assertFalse(any("Other/Repo" in c for c in self.fake.calls))
 
-    # Bug: a comment-only verdict posted while required checks already pass (e.g. comment-only because the
-    # PR text tried to steer the review) re-triggers a follow-up on every scan, although nothing changed
-    # since that review. pending_reviews.py:166-174 does not know whether checks passed when it was posted.
-    @unittest.expectedFailure
     def test_comment_only_verdict_posted_with_passing_checks_does_not_loop(self):
+        # Comment-only although checks already passed (e.g. the PR text tried to steer the review):
+        # nothing changed since, so it must not come back on every scan.
         self.checks.return_value = True
+        self.state.return_value = (True, NOW - dt.timedelta(minutes=20))
         self.track("Octo/App#1", in_progress_since=None)
         self.fake.add_pr(REPO, 1, updated=10)
         self.fake.deep_review("Octo/App#1", body=COMMENT_ONLY, at=10)
         self.assertEqual(self.scan()["due"], [])
+        self.assertFalse(self.read_state()["scan"]["Octo/App#1"]["recheck"])
+        self.assertEqual(self.scan()["due"], [])
+        self.assertEqual(self.fake.review_fetches("Octo/App#1"), 1)
 
 
 class LocalClonesTests(unittest.TestCase):
@@ -504,6 +586,99 @@ class LocalClonesTests(unittest.TestCase):
         with mock.patch.object(pr_mod.subprocess, "run") as run:
             self.assertEqual(pr_mod.local_clones(pathlib.Path("/nonexistent/clones-root")), {})
         run.assert_not_called()
+
+
+def check_run(name, conclusion="SUCCESS", started=40, completed=30, required=True, workflow="CI", event="pull_request"):
+    return {
+        "__typename": "CheckRun",
+        "name": name,
+        "isRequired": required,
+        "conclusion": conclusion,
+        "startedAt": ago(started) if started is not None else None,
+        "completedAt": ago(completed) if completed is not None else None,
+        "checkSuite": {"workflowRun": {"event": event, "workflow": {"name": workflow}}},
+    }
+
+
+def status(context, state="SUCCESS", created=30, required=True):
+    return {
+        "__typename": "StatusContext",
+        "context": context,
+        "isRequired": required,
+        "state": state,
+        "createdAt": ago(created),
+    }
+
+
+def rollup(*nodes, oid=HEAD, more=False, empty=False):
+    commit = {
+        "oid": oid,
+        "statusCheckRollup": None if empty else {"contexts": {"pageInfo": {"hasNextPage": more}, "nodes": list(nodes)}},
+    }
+    return {"data": {"repository": {"pullRequest": {"commits": {"nodes": [{"commit": commit}]}}}}}
+
+
+class RequiredChecksStateTests(unittest.TestCase):
+    def state(self, response):
+        calls = []
+
+        def fake_gh(*args):
+            calls.append(args)
+            return response
+
+        with mock.patch.object(pr_mod, "gh", fake_gh):
+            result = pr_mod.required_checks_state(REPO, 12, HEAD)
+        return result, calls
+
+    def test_commit_status_finishes_at_its_created_time(self):
+        (passing, finished), calls = self.state(rollup(status("ci/jenkins", created=15)))
+        self.assertEqual((passing, finished), (True, NOW - dt.timedelta(minutes=15)))
+        args = calls[0]
+        self.assertEqual(args[:2], ("api", "graphql"))
+        self.assertIn("n=12", args)
+        self.assertIn("isRequired(pullRequestNumber:$n)", args[-1])
+
+    def test_latest_finish_across_check_runs_and_statuses(self):
+        result, _ = self.state(rollup(check_run("build", completed=40), status("ci/legacy", created=5)))
+        self.assertEqual(result, (True, NOW - dt.timedelta(minutes=5)))
+
+    def test_only_required_checks_count(self):
+        result, _ = self.state(rollup(check_run("build", completed=40), check_run("lint", "FAILURE", required=False)))
+        self.assertEqual(result, (True, NOW - dt.timedelta(minutes=40)))
+
+    def test_only_the_newest_run_of_a_check_counts(self):
+        older_failure = check_run("build", "FAILURE", started=60, completed=55)
+        newer_success = check_run("build", "SUCCESS", started=20, completed=10)
+        self.assertEqual(self.state(rollup(older_failure, newer_success))[0], (True, NOW - dt.timedelta(minutes=10)))
+        self.assertEqual(self.state(rollup(newer_success, older_failure))[0][0], True)
+
+    def test_runs_from_different_workflows_or_events_are_separate_checks(self):
+        push = check_run("build", "FAILURE", started=20, event="push")
+        pull = check_run("build", "SUCCESS", started=30)
+        self.assertFalse(self.state(rollup(push, pull))[0][0])
+
+    def test_only_success_passes(self):
+        for node in (
+            check_run("build", "SKIPPED"),
+            check_run("build", "NEUTRAL"),
+            check_run("build", None, completed=None),
+            status("ci", "PENDING"),
+            status("ci", "ERROR"),
+        ):
+            with self.subTest(node=node.get("conclusion") or node.get("state")):
+                self.assertFalse(self.state(rollup(node))[0][0])
+
+    def test_unjudgeable_rollups_do_not_pass(self):
+        cases = {
+            "no required checks": rollup(check_run("lint", required=False)),
+            "no rollup": rollup(empty=True),
+            "another head commit": rollup(check_run("build"), oid=OLD),
+            "more than one page": rollup(check_run("build"), more=True),
+            "no commits": {"data": {"repository": {"pullRequest": {"commits": {"nodes": []}}}}},
+        }
+        for name, response in cases.items():
+            with self.subTest(name):
+                self.assertEqual(self.state(response)[0], (False, None))
 
 
 class RequiredChecksPassTests(unittest.TestCase):

@@ -46,7 +46,7 @@ If a plugin has `scripts/build_codex_skills.py`, its Codex skills are generated 
 make check
 ```
 
-CI runs the same checks on every pull request, plus actionlint. The unit tests run on both Python 3.9 and 3.15. The checks are:
+CI runs the same checks on every pull request, plus actionlint. The unit tests run on every supported Python, 3.9 to 3.15. The checks are:
 
 - **Ruff:** lint and format.
 - **Plugin checks:**
