@@ -18,7 +18,7 @@ Agents working in this repository should also read [AGENTS.md](AGENTS.md).
 
 ## Set up
 
-You need `git`, [uv](https://docs.astral.sh/uv/) 0.10 or later, Node.js (the version in `.nvmrc`, with npm 11.10 or later) and `python3`.
+You need `git`, [uv](https://docs.astral.sh/uv/) 0.10 or later, Node.js (the version in `.nvmrc`, with npm 11.10 or later) and `python3` 3.11 or later.
 
 ```bash
 uv sync
@@ -46,7 +46,7 @@ If a plugin has `scripts/build_codex_skills.py`, its Codex skills are generated 
 make check
 ```
 
-CI runs the same checks on every pull request, plus actionlint. The unit tests run on every supported Python, 3.9 to 3.15. The checks are:
+CI runs the same checks on every pull request, plus actionlint. The unit tests run on every supported Python, 3.11 to 3.15. The checks are:
 
 - **Ruff:** lint and format.
 - **Plugin checks:**
@@ -70,7 +70,7 @@ CI runs the same checks on every pull request, plus actionlint. The unit tests r
    - **minor:** new behaviour that existing users can ignore;
    - **major:** a change users must act on, such as a renamed setting or command.
 2. Move the plugin's `## [Unreleased]` notes under a new `## [x.y.z] - YYYY-MM-DD` heading.
-3. Open a pull request. When it merges and CI passes on `main`, CI tags `<plugin>--v<x.y.z>` and publishes a GitHub release with that changelog section.
+3. Open a pull request. When it merges and CI passes on `main`, CI tags `<plugin>--v<x.y.z>` and publishes a GitHub release. Its notes are that changelog section plus a Contributors list. The list has everyone whose commits changed the plugin since its previous release, co-authors included and bots excluded. People with a linked GitHub account are shown as `@login`; anyone else appears by git name. Preview them with `python3 scripts/check_plugins.py release-notes <plugin> <x.y.z>`.
 
 Users only receive a change when its version changes, so never ship plugin changes without a bump. CI enforces this.
 

@@ -16,6 +16,14 @@ import pathlib
 import re
 import sys
 
+# Deliberately kept although ruff targets 3.11: it gives older interpreters a clear error.
+if sys.version_info < (3, 11):  # noqa: UP036
+    sys.exit(
+        f"deep-review needs Python 3.11 or later, but this is Python {sys.version.split()[0]}. "
+        "macOS's built-in python3 is 3.9; install a newer one (for example `brew install python`) "
+        "so that `python3` resolves to it."
+    )
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "skills"
 TARGET = ROOT / "codex-skills"

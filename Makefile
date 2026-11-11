@@ -10,7 +10,7 @@ lint:
 	uv run --locked zizmor --offline .
 
 test:
-	python3 -m unittest discover -s tests -t .
+	uv run --locked python -m unittest discover -s tests -t .
 
 validate:
 	npx --no-install claude plugin validate .

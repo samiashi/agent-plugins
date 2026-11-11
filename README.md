@@ -70,7 +70,7 @@ codex plugin marketplace add samiashi/agent-plugins --ref deep-review--v1.2.0
 ## Releases
 
 - `main` is the release channel. Each plugin is versioned on its own with [Semantic Versioning](https://semver.org/), and its `CHANGELOG.md` records every release.
-- When a version change lands on `main` and CI passes, CI tags it and publishes a [GitHub release](https://github.com/samiashi/agent-plugins/releases) with that version's changelog entry.
+- When a version change lands on `main` and CI passes, CI tags it and publishes a [GitHub release](https://github.com/samiashi/agent-plugins/releases). The release notes are that version's changelog entry, followed by a list of everyone whose commits changed the plugin since its previous release (co-authors included, bots excluded).
 - Release tags are protected: they can't be moved or deleted.
 
 ## Contributing

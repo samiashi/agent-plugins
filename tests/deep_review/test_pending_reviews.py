@@ -33,7 +33,7 @@ REPO = "Octo/App"
 OTHER_REPO = "Zeta/Lib"
 HEAD = "a1" * 20
 OLD = "b2" * 20
-NOW = dt.datetime(2026, 11, 11, 12, 0, tzinfo=dt.timezone.utc)
+NOW = dt.datetime(2026, 11, 11, 12, 0, tzinfo=dt.UTC)
 MARKED = pr_mod.MARKER + ": the cache key ignores the tenant."
 READY = "Reviewed at a1a1a1a. No blocking issues; ready for approval. 0 non-blocking comments inline."
 COMMENT_ONLY = "No verdict: required check `ci` is failing. 1 non-blocking finding inline."

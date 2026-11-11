@@ -15,7 +15,7 @@ _spec = importlib.util.spec_from_file_location("check_release_age", REPO / "scri
 check_release_age = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(check_release_age)
 
-NOW = dt.datetime(2026, 11, 20, 12, 0, tzinfo=dt.timezone.utc)
+NOW = dt.datetime(2026, 11, 20, 12, 0, tzinfo=dt.UTC)
 DAYS = check_release_age.COOLDOWN_DAYS
 
 

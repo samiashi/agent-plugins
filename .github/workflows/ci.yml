@@ -57,6 +57,20 @@ jobs:
           else
             uv run --locked python scripts/check_release_age.py check
           fi
+      - name: Old Pythons get a clear error
+        run: |
+          # The only real check that each plugin script still starts on 3.9 and 3.10 and exits
+          # with the guard's message; unit tests on 3.11+ can't see syntax or imports that break there.
+          for python in 3.9 3.10; do
+            for script in plugins/*/scripts/*.py; do
+              if out=$(uv run --no-project --python "$python" python "$script" 2>&1); then
+                echo "::error file=$script::ran on Python $python instead of refusing it"; exit 1
+              fi
+              echo "$out" | grep -q "needs Python 3.11 or later" || {
+                echo "::error file=$script::Python $python failed without the guard message: $out"; exit 1
+              }
+            done
+          done
       - name: actionlint
         run: |
           curl -fsSLo actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
@@ -77,10 +91,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Every supported Python: from 3.9, the python3 that ships with macOS, to the newest
-        # stable release. Add each new release here, and drop a version only when it stops
-        # being supported.
-        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
+        # Every Python that upstream still supports, from the oldest to the newest stable
+        # release. Add each new release; when one reaches end of life, drop it here, from
+        # ruff's target-version and from the version guard in the plugin scripts together.
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -142,7 +156,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [ci-passed]
     runs-on: ubuntu-26.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: write
     concurrency:
@@ -161,7 +175,7 @@ jobs:
           echo "Pending releases: $pending"
           echo "$pending" | python3 -c 'import json,sys; [print(r["plugin"], r["version"], r["tag"]) for r in json.load(sys.stdin)]' |
           while read -r plugin version tag; do
-            python3 scripts/check_plugins.py notes "$plugin" "$version" > notes.md
+            python3 scripts/check_plugins.py release-notes "$plugin" "$version" --target "$GITHUB_SHA" > notes.md
             gh release create "$tag" --target "$GITHUB_SHA" --title "$plugin $version" --notes-file notes.md
             echo "Released $tag" >> "$GITHUB_STEP_SUMMARY"
           done

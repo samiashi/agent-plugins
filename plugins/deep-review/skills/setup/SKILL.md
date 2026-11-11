@@ -19,7 +19,7 @@ Current settings:
 Run each check and report the results in a short list.
 
 - **GitHub CLI:** `gh auth status`, then `gh api user --jq .login` to get the user's login. Reviews post from this account.
-- **Python:** `python3 --version`.
+- **Python:** `python3 --version`. The plugin needs Python 3.11 or later. macOS's built-in `python3` is 3.9, so if the version is older, stop and tell the user to install a newer one (for example `brew install python`) so that `python3` resolves to it.
 - **Clones folder:** list the git repositories directly under `${user_config.clones_root}` that have a GitHub `origin`. Automatic reviews only run on these.
 
 If `gh` is not signed in, stop and tell the user to run `gh auth login` first.

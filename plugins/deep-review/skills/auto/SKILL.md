@@ -28,7 +28,7 @@ Settings:
    - `capped`: always empty, retained for compatibility;
    - `no_clone`: requested in a repository with no local clone.
 
-   Each entry has `key` (owner/name#N), `repo`, `pr`, `path` (the local clone), `kind` (`first` or `follow-up`), `round`, `author`, `url` and `reasons`. If the script fails, stop and report the error in one line.
+   Each entry has `key` (owner/name#N), `repo`, `pr`, `path` (the local clone), `kind` (`first` or `follow-up`), `round`, `author`, `url` and `reasons`. If the script fails, notify the user with its error in one line, then stop. For example, on a Python older than 3.11 it exits saying so, and the fix is to install a newer Python.
 
 2. **Nothing to do?** If `due` and `no_clone` are empty, reply with the single line "No deep reviews due." and stop.
 
