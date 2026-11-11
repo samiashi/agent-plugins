@@ -14,6 +14,8 @@ scripts/check_plugins.py          catalog, version and changelog checks; release
 tests/                            unit tests for the scripts
 ```
 
+Agents working in this repository should also read [AGENTS.md](AGENTS.md).
+
 ## Set up
 
 You need `git`, [uv](https://docs.astral.sh/uv/), Node.js (see `.nvmrc`) and `python3`.
@@ -44,7 +46,7 @@ If a plugin has `scripts/build_codex_skills.py`, its Codex skills are generated 
 make check
 ```
 
-CI runs the same checks on every pull request, plus actionlint, on Python 3.9 and 3.13:
+CI runs the same checks on every pull request, plus actionlint, on Python 3.9 and 3.15:
 
 - **Ruff:** lint and format.
 - **Plugin checks:**
