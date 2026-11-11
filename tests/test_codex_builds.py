@@ -1,6 +1,6 @@
 """Every plugin's real Codex build must pass `--check` on each Python that CI tests.
 
-The unit-test matrix includes macOS's python3 (3.9), so this catches a builder that
+The unit-test matrix covers every supported Python down to macOS's python3 (3.9), so this catches a builder that
 uses a newer standard-library API, which ruff's py39 syntax target cannot see.
 """
 

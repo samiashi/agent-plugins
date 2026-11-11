@@ -77,8 +77,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.9 is the python3 that ships with macOS; the plugin scripts must run there.
-        python: ["3.9", "3.15"]
+        # Every supported Python: from 3.9, the python3 that ships with macOS, to the newest
+        # stable release. Add each new release here, and drop a version only when it stops
+        # being supported.
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

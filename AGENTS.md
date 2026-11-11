@@ -39,7 +39,7 @@ This repository is a public plugin marketplace, `samiashi-plugins`, for Claude C
   Those settings only apply when a version is first resolved, and `npm ci` and `uv sync --locked` install whatever the lockfiles pin. So, on every pull request, `check_release_age.py` rejects any npm or uv version a lockfile adds, and any new `.nvmrc`, that was published within the window. When the cooldown blocks an upgrade, wait. Don't shorten the window or add exclusions. Dependabot security updates skip the cooldown and fail that check; an admin merges those through the ruleset bypass.
 - **Pins nothing updates for you:** Dependabot covers GitHub Actions, npm and uv only. Bump these by hand, choosing the newest release that's at least 6 days old:
   - `.nvmrc`: an exact Node LTS version, which CI age-checks;
-  - `.python-version`, and the Python matrix in `ci.yml` (keep 3.9 as the oldest);
+  - `.python-version`, and the Python matrix in `ci.yml`. The matrix lists every supported version, from 3.9 to the newest stable release, so add each new release to it;
   - the `runs-on` runner labels;
   - `UV_VERSION`;
   - `ACTIONLINT_VERSION` and `ACTIONLINT_SHA256`, from the release's checksums file. When you bump it, drop any label in `.github/actionlint.yaml` that the new release recognises.
@@ -53,6 +53,6 @@ make check
 This runs ruff, the plugin checks, the release-age check, zizmor, the unit tests and `claude plugin validate`, all against the committed `uv.lock`. CI also:
 - runs actionlint;
 - runs zizmor online, including its known-vulnerable-actions audit;
-- runs the unit tests on both the oldest and the newest supported Python.
+- runs the unit tests on every supported Python, 3.9 to 3.15.
 
 Commit messages follow Conventional Commits, for example `feat(deep-review): …`, `fix: …`, `ci: …` or `docs: …`.
