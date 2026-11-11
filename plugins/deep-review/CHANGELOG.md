@@ -4,6 +4,8 @@ All notable changes to the deep-review plugin. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-11-11
+
 ### Removed
 
 - Support for Python 3.9 and 3.10, which have both reached end of life. The plugin's scripts need Python 3.11 or later, and exit with a clear message on an older one. macOS's built-in `python3` is 3.9, so install a newer one, for example with `brew install python`. `/deep-review:setup` checks this.
@@ -66,6 +68,7 @@ First public release.
 - `/deep-review:auto`, a scheduled pass over review requests and follow-ups.
 - `/deep-review:setup`.
 
-[Unreleased]: https://github.com/samiashi/agent-plugins/compare/deep-review--v1.2.1...HEAD
+[Unreleased]: https://github.com/samiashi/agent-plugins/compare/deep-review--v1.2.2...HEAD
+[1.2.2]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.2
 [1.2.1]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.1
 [1.2.0]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.0
