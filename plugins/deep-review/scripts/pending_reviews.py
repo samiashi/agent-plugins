@@ -52,6 +52,14 @@ import re
 import subprocess
 import sys
 
+# Deliberately kept although ruff targets 3.11: it gives older interpreters a clear error.
+if sys.version_info < (3, 11):  # noqa: UP036
+    sys.exit(
+        f"deep-review needs Python 3.11 or later, but this is Python {sys.version.split()[0]}. "
+        "macOS's built-in python3 is 3.9; install a newer one (for example `brew install python`) "
+        "so that `python3` resolves to it."
+    )
+
 MARKER = "I checked and found this potential issue to look into"
 VERDICT_BODY_PREFIXES = ("Blocking:", "Reviewed at ")  # legacy bodies, before verdict markers
 # The review skill ends every review body with <!-- deep-review-verdict: <kind> -->.
@@ -88,7 +96,7 @@ def ts(value):
 
 
 def now():
-    return dt.datetime.now(dt.timezone.utc)
+    return dt.datetime.now(dt.UTC)
 
 
 def key_of(repo, n):
@@ -185,7 +193,7 @@ def required_checks_state(repo, number, head):
             key = ("status", c.get("context"))
             started = finished = c.get("createdAt")
             passed = c.get("state") == "SUCCESS"
-        order = ts(started) if started else dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+        order = ts(started) if started else dt.datetime.min.replace(tzinfo=dt.UTC)
         if key not in newest or order >= newest[key][0]:
             newest[key] = (order, passed, ts(finished) if finished else None)
     if not newest:

@@ -144,9 +144,7 @@ def check_new_versions(root, base_ref, now, fetch):
             if nvmrc not in dates:
                 errors.append(f".nvmrc: Node {nvmrc} is not in the Node release index")
             else:
-                too_new(
-                    f".nvmrc: Node {nvmrc}", dt.datetime.fromisoformat(dates[nvmrc]).replace(tzinfo=dt.timezone.utc)
-                )
+                too_new(f".nvmrc: Node {nvmrc}", dt.datetime.fromisoformat(dates[nvmrc]).replace(tzinfo=dt.UTC))
     return errors
 
 
@@ -160,7 +158,7 @@ def main(argv=None, fetch_json=fetch_json, now=None):
     root = args.root.resolve()
     errors = check_settings(root)
     if args.base:
-        errors += check_new_versions(root, args.base, now or dt.datetime.now(dt.timezone.utc), fetch_json)
+        errors += check_new_versions(root, args.base, now or dt.datetime.now(dt.UTC), fetch_json)
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
     if not errors:

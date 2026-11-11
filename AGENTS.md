@@ -21,7 +21,7 @@ This repository is a public plugin marketplace, `samiashi-plugins`, for Claude C
 
 ## Code rules
 
-- **Python:** plugin scripts run on the user's `python3`, which may be macOS's 3.9. Use the standard library only and keep 3.9 syntax; ruff targets `py39`. Repo tooling under `scripts/` follows the same rule.
+- **Python:** plugin scripts run on the user's `python3` and support only Pythons that upstream still maintains, currently 3.11 and later. Use the standard library only; ruff targets `py311`. Each script exits with a clear message on an older Python, such as macOS's built-in 3.9; keep that guard above any newer syntax. Repo tooling under `scripts/` follows the same rule.
 - **Tests:** they live in `tests/`, use `unittest`, never touch the network or real `gh`/`git` remotes, and must fail under a realistic regression. When a test exposes a bug you aren't fixing, mark it `@unittest.expectedFailure` with a comment rather than deleting it.
 - **Workflows:**
   - pin every action to a full commit SHA, with the version in a comment;
@@ -39,7 +39,7 @@ This repository is a public plugin marketplace, `samiashi-plugins`, for Claude C
   Those settings only apply when a version is first resolved, and `npm ci` and `uv sync --locked` install whatever the lockfiles pin. So, on every pull request, `check_release_age.py` rejects any npm or uv version a lockfile adds, and any new `.nvmrc`, that was published within the window. When the cooldown blocks an upgrade, wait. Don't shorten the window or add exclusions. Dependabot security updates skip the cooldown and fail that check; an admin merges those through the ruleset bypass.
 - **Pins nothing updates for you:** Dependabot covers GitHub Actions, npm and uv only. Bump these by hand, choosing the newest release that's at least 6 days old:
   - `.nvmrc`: an exact Node LTS version, which CI age-checks;
-  - `.python-version`, and the Python matrix in `ci.yml`. The matrix lists every supported version, from 3.9 to the newest stable release, so add each new release to it;
+  - `.python-version`, and the Python matrix in `ci.yml`. The matrix lists every Python upstream still supports, so add each new release to it. When a version reaches end of life, drop it from the matrix, from ruff's `target-version` and from the scripts' version guard in the same change;
   - the `runs-on` runner labels;
   - `UV_VERSION`;
   - `ACTIONLINT_VERSION` and `ACTIONLINT_SHA256`, from the release's checksums file. When you bump it, drop any label in `.github/actionlint.yaml` that the new release recognises.
@@ -53,6 +53,6 @@ make check
 This runs ruff, the plugin checks, the release-age check, zizmor, the unit tests and `claude plugin validate`, all against the committed `uv.lock`. CI also:
 - runs actionlint;
 - runs zizmor online, including its known-vulnerable-actions audit;
-- runs the unit tests on every supported Python, 3.9 to 3.15.
+- runs the unit tests on every supported Python, 3.11 to 3.15.
 
 Commit messages follow Conventional Commits, for example `feat(deep-review): …`, `fix: …`, `ci: …` or `docs: …`.

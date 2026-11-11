@@ -18,7 +18,7 @@ Agents working in this repository should also read [AGENTS.md](AGENTS.md).
 
 ## Set up
 
-You need `git`, [uv](https://docs.astral.sh/uv/) 0.10 or later, Node.js (the version in `.nvmrc`, with npm 11.10 or later) and `python3`.
+You need `git`, [uv](https://docs.astral.sh/uv/) 0.10 or later, Node.js (the version in `.nvmrc`, with npm 11.10 or later) and `python3` 3.11 or later.
 
 ```bash
 uv sync
@@ -46,7 +46,7 @@ If a plugin has `scripts/build_codex_skills.py`, its Codex skills are generated 
 make check
 ```
 
-CI runs the same checks on every pull request, plus actionlint. The unit tests run on every supported Python, 3.9 to 3.15. The checks are:
+CI runs the same checks on every pull request, plus actionlint. The unit tests run on every supported Python, 3.11 to 3.15. The checks are:
 
 - **Ruff:** lint and format.
 - **Plugin checks:**
