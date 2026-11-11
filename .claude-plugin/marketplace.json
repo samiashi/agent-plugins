@@ -1,0 +1,14 @@
+{
+  "name": "samiashi-plugins",
+  "description": "Claude Code and Codex plugins by Sami El Achi",
+  "owner": {
+    "name": "Sami El Achi"
+  },
+  "plugins": [
+    {
+      "name": "deep-review",
+      "source": "./plugins/deep-review",
+      "description": "Verification-gated multi-agent code review, with automatic reviews of PRs you're requested on and follow-up rounds"
+    }
+  ]
+}

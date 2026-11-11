@@ -1,0 +1,20 @@
+{
+  "name": "samiashi-plugins",
+  "interface": {
+    "displayName": "Sami's agent plugins"
+  },
+  "plugins": [
+    {
+      "name": "deep-review",
+      "source": {
+        "source": "local",
+        "path": "./plugins/deep-review"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

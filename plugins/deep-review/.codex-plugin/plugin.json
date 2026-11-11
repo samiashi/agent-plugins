@@ -1,0 +1,31 @@
+{
+  "name": "deep-review",
+  "version": "1.2.0",
+  "description": "Verification-gated multi-agent code review. Reviews look past the diff, prove each finding before reporting it, and can fix, report, or comment on a PR with a verdict. An optional automation reviews PRs you're requested on and follows up when authors respond.",
+  "author": {
+    "name": "Sami El Achi"
+  },
+  "keywords": [
+    "code-review",
+    "pull-requests",
+    "github",
+    "subagents"
+  ],
+  "skills": "./codex-skills/",
+  "interface": {
+    "displayName": "Deep review",
+    "shortDescription": "Verification-gated multi-agent code review with PR follow-ups",
+    "developerName": "Sami El Achi",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write",
+      "Code Review",
+      "Workflow Automation"
+    ],
+    "defaultPrompt": [
+      "Deep-review my current branch",
+      "Run one automatic deep-review pass"
+    ]
+  }
+}

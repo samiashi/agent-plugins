@@ -1,0 +1,50 @@
+{
+  "name": "deep-review",
+  "displayName": "Deep review",
+  "version": "1.2.0",
+  "description": "Verification-gated multi-agent code review. Reviews look past the diff, prove each finding before reporting it, and can fix, report, or comment on a PR with a verdict. Optional scheduled task reviews PRs you're requested on and follows up when authors respond.",
+  "author": {
+    "name": "Sami El Achi"
+  },
+  "keywords": [
+    "code-review",
+    "pull-requests",
+    "github",
+    "subagents"
+  ],
+  "userConfig": {
+    "approval_mode": {
+      "type": "string",
+      "title": "Approval mode",
+      "description": "What comment mode does when a PR has no blocking findings. never: leave a comment-only review and approve yourself. confirm: ask you first; unattended runs leave the approval to you. automatic: approve. An approval is recorded as your review.",
+      "options": [
+        "never",
+        "confirm",
+        "automatic"
+      ],
+      "default": "never"
+    },
+    "block_at": {
+      "type": "string",
+      "title": "Request changes at",
+      "description": "Lowest verified severity that makes comment mode request changes. Findings below it are posted as non-blocking comments.",
+      "options": [
+        "medium",
+        "high"
+      ],
+      "default": "medium"
+    },
+    "review_requests": {
+      "type": "boolean",
+      "title": "Review requested PRs automatically",
+      "description": "Let the scheduled task deep-review PRs where you are directly requested as a reviewer. Follow-up rounds on PRs you already deep-reviewed run either way.",
+      "default": true
+    },
+    "clones_root": {
+      "type": "directory",
+      "title": "Folder with your local clones",
+      "description": "Automatic reviews only run on repositories cloned directly under this folder.",
+      "default": "~/Documents/GitHub"
+    }
+  }
+}
