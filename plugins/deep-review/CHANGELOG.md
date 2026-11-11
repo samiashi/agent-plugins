@@ -8,12 +8,14 @@ All notable changes to the deep-review plugin. The format follows [Keep a Change
 
 ### Fixed
 
-- The automatic pass no longer reviews the same PR again on every scan when its last review was comment-only and the required checks had already passed. A comment-only verdict now triggers a follow-up only once a required check finishes after that review.
+- The automatic pass no longer reviews the same PR again on every scan when its last review was comment-only and the required checks had already passed. A comment-only verdict now triggers a follow-up only once a required check finishes after that review. That covers both GitHub check runs and commit statuses, with only the newest run of each check counting, as in `gh pr checks`.
+- If the pass can't read a PR's checks, it retries that PR on the next scan, without holding up the others.
 - A comment-only review with no inline findings, such as a clean PR with a failing required check, is now recognised as a deep review. Its follow-up runs once the checks pass.
 
 ### Changed
 
-- Every review body now ends with a hidden verdict marker, `<!-- deep-review-verdict: approve | ready | changes | comment -->`, which the automatic pass reads instead of the body's wording. Reviews posted before this release are still read from their state and wording.
+- Every review body now ends with a hidden verdict marker, `<!-- deep-review-verdict: approve | ready | changes | comment -->`. The automatic pass decides follow-ups from the latest review that carries one, and if a body quotes a marker, it reads the closing one. Reviews posted before this release are still read from their state and wording.
+- Before posting a verdict that depends on the required checks, the review re-reads them.
 
 ## [1.2.0] - 2026-11-11
 

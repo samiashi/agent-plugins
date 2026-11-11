@@ -426,6 +426,7 @@ A later run on the same PR posts a fresh verdict. Its approval supersedes an ear
 
 *How to post.*
 - Check that the PR head is still the SHA you reviewed. If it moved, re-anchor against the new head, or stop and say so.
+- If the verdict depends on the required checks, read them again just before submitting. If they changed, choose the verdict again. The automatic pass only follows up a comment-only verdict when a required check finishes after the review is posted.
 - Post the inline comments and the verdict together as one review: event `REQUEST_CHANGES`, `APPROVE` or `COMMENT`, with the body above. The author gets a single notification. Use the reviewed head SHA as `commit_id`, with `line`/`side`, plus `start_line` for ranges.
 - If GitHub rejects the review, it rejects the whole batch, usually because one line is outside the diff. Move that comment to a valid changed line or make it file-level, then post again.
 - Read the PR back. Confirm each finding landed on its intended line and that the review state matches the verdict.
