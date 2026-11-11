@@ -20,7 +20,7 @@ env:
 jobs:
   lint:
     name: Lint and plugin checks
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -48,6 +48,15 @@ jobs:
           else
             uv run python scripts/check_plugins.py check
           fi
+      - name: Release-age cooldown
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            uv run --locked python scripts/check_release_age.py check --base "origin/$BASE_REF"
+          else
+            uv run --locked python scripts/check_release_age.py check
+          fi
       - name: actionlint
         run: |
           curl -fsSLo actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
@@ -61,7 +70,7 @@ jobs:
 
   tests:
     name: Tests (Python ${{ matrix.python }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -69,7 +78,7 @@ jobs:
       fail-fast: false
       matrix:
         # 3.9 is the python3 that ships with macOS; the plugin scripts must run there.
-        python: ["3.9", "3.13"]
+        python: ["3.9", "3.15"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,7 +94,7 @@ jobs:
 
   validate:
     name: Claude Code validation
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -113,7 +122,7 @@ jobs:
     name: CI passed
     if: always()
     needs: [lint, tests, validate]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -130,7 +139,7 @@ jobs:
     name: Release new plugin versions
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [ci-passed]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: write

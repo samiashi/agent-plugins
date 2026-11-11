@@ -1,0 +1,5 @@
+rules:
+  dependabot-cooldown:
+    config:
+      # Match the 6-day release-age cooldown used for npm and uv in this repo.
+      days: 6

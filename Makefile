@@ -3,10 +3,11 @@
 check: lint test validate ## Run everything CI runs, except actionlint
 
 lint:
-	uv run ruff check .
-	uv run ruff format --check .
-	uv run python scripts/check_plugins.py check --base origin/main
-	uv run zizmor --offline .
+	uv run --locked ruff check .
+	uv run --locked ruff format --check .
+	uv run --locked python scripts/check_plugins.py check --base origin/main
+	uv run --locked python scripts/check_release_age.py check --base origin/main
+	uv run --locked zizmor --offline .
 
 test:
 	python3 -m unittest discover -s tests -t .
@@ -16,8 +17,8 @@ validate:
 	for plugin in plugins/*/; do npx --no-install claude plugin validate "$$plugin"; done
 
 fix:
-	uv run ruff check --fix .
-	uv run ruff format .
+	uv run --locked ruff check --fix .
+	uv run --locked ruff format .
 
 codex-skills: ## Regenerate every plugin's Codex skills after editing skills/
 	for script in plugins/*/scripts/build_codex_skills.py; do python3 "$$script"; done
