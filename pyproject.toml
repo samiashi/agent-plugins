@@ -1,0 +1,20 @@
+# Development tooling only; the plugins themselves have no Python dependencies.
+[project]
+name = "agent-plugins-dev"
+version = "0"
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = ["ruff==0.17.4", "zizmor==1.32.0"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+# Long lines in the scripts are skill text that must match the skills word for word.
+ignore = ["E501"]

@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_VERSION: "0.13.7"
+  ACTIONLINT_VERSION: "1.7.12"
+  ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+
+jobs:
+  lint:
+    name: Lint and plugin checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Install dev tools
+        run: uv sync --locked
+      - name: Ruff
+        run: |
+          uv run ruff check --output-format=github .
+          uv run ruff format --check .
+      - name: Plugin checks
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            uv run python scripts/check_plugins.py check --base "origin/$BASE_REF"
+          else
+            uv run python scripts/check_plugins.py check
+          fi
+      - name: actionlint
+        run: |
+          curl -fsSLo actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tgz" | sha256sum -c -
+          tar -xzf actionlint.tgz actionlint
+          ./actionlint -color
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run zizmor --format=github .
+
+  tests:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the python3 that ships with macOS; the plugin scripts must run there.
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Unit tests
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+        run: uv run --no-project --python "$PYTHON_VERSION" python -m unittest discover -s tests -t . -v
+
+  validate:
+    name: Claude Code validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      DISABLE_TELEMETRY: "1"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install the pinned Claude Code CLI
+        run: npm ci --no-audit --no-fund
+      - name: Validate the marketplace and every plugin
+        run: |
+          npx --no-install claude --version
+          npx --no-install claude plugin validate .
+          for plugin in plugins/*/; do
+            npx --no-install claude plugin validate "$plugin"
+          done
+
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [lint, tests, validate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require every job to succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Results: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = success ] || exit 1
+          done
+
+  release:
+    name: Release new plugin versions
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [ci-passed]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Tag and publish each untagged version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pending=$(python3 scripts/check_plugins.py releases)
+          echo "Pending releases: $pending"
+          echo "$pending" | python3 -c 'import json,sys; [print(r["plugin"], r["version"], r["tag"]) for r in json.load(sys.stdin)]' |
+          while read -r plugin version tag; do
+            python3 scripts/check_plugins.py notes "$plugin" "$version" > notes.md
+            gh release create "$tag" --target "$GITHUB_SHA" --title "$plugin $version" --notes-file notes.md
+            echo "Released $tag" >> "$GITHUB_STEP_SUMMARY"
+          done
