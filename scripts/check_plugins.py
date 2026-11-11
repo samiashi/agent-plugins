@@ -6,7 +6,11 @@ Commands:
                          for each plugin whose shipped files changed since the merge base
                          with REF, so users actually receive the change.
   releases               Print JSON [{plugin, version, tag}] for versions without a tag.
-  notes PLUGIN VERSION   Print that version's changelog section, for release notes.
+  notes PLUGIN VERSION   Print that version's changelog section.
+  release-notes PLUGIN VERSION [--target REF] [--repo OWNER/NAME]
+                         Print the release notes: the changelog section, then a Contributors
+                         list. The list has the GitHub users whose commits changed the plugin's
+                         directory since its previous release tag, up to REF (default HEAD).
 
 A plugin's shipped files are everything under its directory except README.md and
 CHANGELOG.md. Tags look like <plugin>--v<version>.
@@ -14,6 +18,7 @@ CHANGELOG.md. Tags look like <plugin>--v<version>.
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -193,7 +198,65 @@ def cmd_notes(root, plugin, version):
     return 0
 
 
-def main(argv=None):
+def previous_tag(root, plugin, version):
+    """The plugin's newest release tag older than `version`, or None for its first release."""
+    prefix = f"{plugin}--v"
+    older = [
+        (version_key(tag[len(prefix) :]), tag)
+        for tag in git(root, "tag", "--list", f"{prefix}*").split()
+        if SEMVER.match(tag[len(prefix) :]) and version_key(tag[len(prefix) :]) < version_key(version)
+    ]
+    return max(older)[1] if older else None
+
+
+def github_login(repo, sha):
+    """The GitHub login that GitHub links to a commit's author, or None if there isn't one."""
+    proc = subprocess.run(
+        ["gh", "api", f"repos/{repo}/commits/{sha}", "--jq", ".author.login // empty"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return proc.stdout.strip() or None
+
+
+def default_repo(root):
+    if os.environ.get("GITHUB_REPOSITORY"):
+        return os.environ["GITHUB_REPOSITORY"]
+    url = git(root, "remote", "get-url", "origin").strip()
+    return url.split("github.com", 1)[1].lstrip(":/").removesuffix(".git")
+
+
+def contributors(root, plugin, version, target, repo, lookup=github_login):
+    """`@login` (or the git author name when GitHub links no account) for each person, bots excluded."""
+    directory = plugin_dirs(root)[plugin].relative_to(root).as_posix()
+    previous = previous_tag(root, plugin, version)
+    revisions = f"{previous}..{target}" if previous else target
+    people = {}
+    for line in git(root, "log", "--format=%H%x09%an", revisions, "--", directory).splitlines():
+        sha, name = line.split("\t", 1)
+        login = lookup(repo, sha)
+        if (login or name).endswith("[bot]"):
+            continue
+        people.setdefault((login or name).lower(), f"@{login}" if login else name)
+    return sorted(people.values(), key=str.lower)
+
+
+def cmd_release_notes(root, plugin, version, target, repo, lookup):
+    directory = plugin_dirs(root).get(plugin)
+    section = changelog_section(directory / "CHANGELOG.md", version) if directory else None
+    if section is None:
+        print(f"error: no changelog section for {plugin} {version}", file=sys.stderr)
+        return 1
+    people = contributors(root, plugin, version, target, repo or default_repo(root), lookup)
+    print(section)
+    if people:
+        print("\n## Contributors\n")
+        print("\n".join(f"- {person}" for person in people))
+    return 0
+
+
+def main(argv=None, lookup=github_login):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -203,12 +266,19 @@ def main(argv=None):
     notes = sub.add_parser("notes")
     notes.add_argument("plugin")
     notes.add_argument("version")
+    release_notes = sub.add_parser("release-notes")
+    release_notes.add_argument("plugin")
+    release_notes.add_argument("version")
+    release_notes.add_argument("--target", default="HEAD", help="the commit being released")
+    release_notes.add_argument("--repo", help="owner/name on GitHub (default: $GITHUB_REPOSITORY or origin)")
     args = parser.parse_args(argv)
     root = args.root.resolve()
     if args.command == "check":
         return cmd_check(root, args.base)
     if args.command == "releases":
         return cmd_releases(root)
+    if args.command == "release-notes":
+        return cmd_release_notes(root, args.plugin, args.version, args.target, args.repo, lookup)
     return cmd_notes(root, args.plugin, args.version)
 
 

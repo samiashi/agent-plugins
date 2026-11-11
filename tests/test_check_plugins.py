@@ -242,5 +242,118 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("no changelog section", err)
 
 
+class ReleaseNotesTests(unittest.TestCase):
+    """Contributors come from commits that changed the plugin since its previous release tag."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.mk = Marketplace(self.root, version="1.0.0")
+        self.mk.init_git()
+        git(self.root, "tag", "demo--v1.0.0")
+        self.logins = {}  # commit sha -> GitHub login (absent: GitHub links no account)
+        self.lookups = []
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def commit_as(self, name, rel, login=None):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{name} {len(self.lookups)} {path.stat().st_size if path.exists() else 0}\n")
+        git(self.root, "add", "-A")
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                f"user.name={name}",
+                "-c",
+                f"user.email={name}@example.com",
+                "commit",
+                "-q",
+                "-m",
+                f"change by {name}",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        sha = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True, text=True
+        ).stdout.strip()
+        if login:
+            self.logins[sha] = login
+        return sha
+
+    def lookup(self, repo, sha):
+        self.lookups.append((repo, sha))
+        return self.logins.get(sha)
+
+    def notes(self, version, *extra):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = check_plugins.main(
+                ["--root", str(self.root), "release-notes", "demo", version, "--repo", "o/r", *extra],
+                lookup=self.lookup,
+            )
+        return code, out.getvalue(), err.getvalue()
+
+    def test_lists_people_who_changed_the_plugin_since_its_previous_release(self):
+        self.commit_as("Alice", "plugins/demo/skills/a/SKILL.md", login="alice")
+        self.commit_as("Bob", "plugins/demo/skills/b.md", login="Bob")
+        self.commit_as("Carol", "README.md", login="carol")  # outside the plugin
+        self.mk.set_version("1.1.0")
+        self.mk.commit("release 1.1.0")
+        code, out, _ = self.notes("1.1.0")
+        self.assertEqual(code, 0)
+        changelog, contributors = out.split("## Contributors")
+        self.assertIn("- Notes for 1.1.0.", changelog)
+        self.assertEqual(contributors.split(), ["-", "@alice", "-", "@Bob", "-", "t"])
+        self.assertTrue(all(repo == "o/r" for repo, _ in self.lookups))
+
+    def test_commits_before_the_previous_release_are_excluded(self):
+        git(self.root, "tag", "-d", "demo--v1.0.0")
+        self.commit_as("Early", "plugins/demo/skills/a/SKILL.md", login="early")
+        git(self.root, "tag", "demo--v1.0.0")
+        self.commit_as("Later", "plugins/demo/skills/a/SKILL.md", login="later")
+        self.mk.set_version("1.1.0", changelog=True)
+        self.assertNotIn("@early", self.notes("1.1.0")[1])
+        self.assertIn("@later", self.notes("1.1.0")[1])
+
+    def test_previous_release_ignores_other_plugins_and_newer_tags(self):
+        self.commit_as("Alice", "plugins/demo/skills/a/SKILL.md", login="alice")
+        git(self.root, "tag", "other--v9.0.0")
+        git(self.root, "tag", "demo--v2.0.0")
+        self.assertEqual(check_plugins.previous_tag(self.root, "demo", "1.5.0"), "demo--v1.0.0")
+        self.assertEqual(check_plugins.previous_tag(self.root, "demo", "1.0.0"), None)
+
+    def test_first_release_counts_every_commit_up_to_the_target(self):
+        git(self.root, "tag", "-d", "demo--v1.0.0")
+        target = self.commit_as("Alice", "plugins/demo/skills/a/SKILL.md", login="alice")
+        self.commit_as("After", "plugins/demo/skills/a/SKILL.md", login="after")
+        out = self.notes("1.0.0", "--target", target)[1]
+        self.assertIn("@alice", out)
+        self.assertNotIn("@after", out)
+
+    def test_bots_are_left_out_and_unlinked_authors_keep_their_name(self):
+        self.commit_as("dependabot[bot]", "plugins/demo/package.json", login="dependabot[bot]")
+        self.commit_as("github-actions[bot]", "plugins/demo/x.md")
+        self.commit_as("Dana Doe", "plugins/demo/y.md")
+        self.commit_as("Alice", "plugins/demo/z.md", login="alice")
+        self.commit_as("Alice", "plugins/demo/z.md", login="alice")
+        self.mk.set_version("1.1.0")
+        out = self.notes("1.1.0")[1].split("## Contributors")[1]
+        self.assertNotIn("[bot]", out)
+        self.assertEqual(out.count("@alice"), 1)
+        self.assertIn("- Dana Doe", out)
+
+    def test_no_contributors_section_without_plugin_commits(self):
+        self.mk.set_version("1.0.1", changelog=True)
+        # set_version changed plugin files but nothing was committed since the tag
+        out = self.notes("1.0.1")[1]
+        self.assertNotIn("## Contributors", out)
+
+
 if __name__ == "__main__":
     unittest.main()

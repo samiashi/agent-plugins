@@ -161,7 +161,7 @@ jobs:
           echo "Pending releases: $pending"
           echo "$pending" | python3 -c 'import json,sys; [print(r["plugin"], r["version"], r["tag"]) for r in json.load(sys.stdin)]' |
           while read -r plugin version tag; do
-            python3 scripts/check_plugins.py notes "$plugin" "$version" > notes.md
+            python3 scripts/check_plugins.py release-notes "$plugin" "$version" --target "$GITHUB_SHA" > notes.md
             gh release create "$tag" --target "$GITHUB_SHA" --title "$plugin $version" --notes-file notes.md
             echo "Released $tag" >> "$GITHUB_STEP_SUMMARY"
           done
