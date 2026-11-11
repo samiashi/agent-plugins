@@ -10,11 +10,15 @@ Two kinds of round:
                - the head commit moved, or
                - someone else replied in one of the user's deep-review threads, or
                - the user's review was re-requested, or
-               - the latest verdict was comment-only for lack of a verdict (not
-                 a "ready for approval" review), every required check now passes,
-                 and at least one of them finished after that review. Checks that
-                 had already passed when the review was posted don't count, so a
-                 comment-only verdict for another reason is not reviewed again.
+               - the latest verdict was comment-only (not "ready for approval"),
+                 every required check now passes, and at least one of them
+                 finished after that review. A check run finishes at its
+                 completedAt and a commit status at its createdAt. Checks that had
+                 already passed when the review was posted don't count, so a
+                 comment-only verdict for another reason isn't reviewed again unless
+                 a required check finishes later. A later re-run of checks that were
+                 already green is not noticed: check runs don't change the PR's
+                 updatedAt, and the scan cache skips unchanged PRs.
 
 Repositories scanned: every repository where the user is directly requested on an
 open PR (when review requests are enabled), plus every repository with a tracked
@@ -53,7 +57,6 @@ VERDICT_BODY_PREFIXES = ("Blocking:", "Reviewed at ")  # legacy bodies, before v
 # The review skill ends every review body with <!-- deep-review-verdict: <kind> -->.
 VERDICT_KINDS = ("approve", "ready", "changes", "comment")
 VERDICT_MARKER = re.compile(r"<!--\s*deep-review-verdict:\s*(" + "|".join(VERDICT_KINDS) + r")\s*-->")
-NOT_FINISHED = "0001-01-01T00:00:00Z"  # gh's completedAt for a check that hasn't finished
 QUIET = dt.timedelta(minutes=3)
 STALE_ROUND = dt.timedelta(minutes=60)
 STATE = None
@@ -61,6 +64,17 @@ STATE = None
 THREADS_QUERY = """
 query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){
   reviewThreads(first:100){nodes{comments(first:50){nodes{author{login} body createdAt}}}}}}}
+"""
+
+# `gh pr checks --json completedAt` reports a zero time for commit statuses, so read the rollup directly.
+CHECKS_QUERY = """
+query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){
+  commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){pageInfo{hasNextPage} nodes{
+    __typename
+    ... on CheckRun{name isRequired(pullRequestNumber:$n) conclusion startedAt completedAt
+                    checkSuite{workflowRun{event workflow{name}}}}
+    ... on StatusContext{context isRequired(pullRequestNumber:$n) state createdAt}
+  }}}}}}}}}
 """
 
 
@@ -132,26 +146,61 @@ def required_checks_pass(repo, number):
     return bool(buckets) and all(b == "pass" for b in buckets)
 
 
-def required_checks_finished_at(repo, number):
-    """When the most recently finished required check finished, or None if none has."""
-    proc = subprocess.run(
-        ["gh", "pr", "checks", str(number), "--repo", repo, "--required", "--json", "completedAt"],
-        capture_output=True,
-        text=True,
+def required_checks_state(repo, number, head):
+    """(all required checks pass, when the last of them finished) for the PR's head commit, from one read.
+
+    Mirrors `gh pr checks --required`: only the newest run of each check counts, and only SUCCESS passes.
+    A check run finishes at its completedAt and a commit status at its createdAt. Anything that can't be
+    judged from this read, such as another head commit, more than 100 checks or no required checks,
+    counts as not passing. Raises when gh fails, so the caller can retry later.
+    """
+    owner, name = repo.split("/")
+    data = gh(
+        "api",
+        "graphql",
+        "-F",
+        f"owner={owner}",
+        "-F",
+        f"name={name}",
+        "-F",
+        f"n={number}",
+        "-f",
+        f"query={CHECKS_QUERY}",
     )
-    if not proc.stdout.strip():
-        return None
-    times = [c.get("completedAt") for c in json.loads(proc.stdout)]
-    finished = [ts(t) for t in times if t and t != NOT_FINISHED]
-    return max(finished) if finished else None
+    commits = data["data"]["repository"]["pullRequest"]["commits"]["nodes"]
+    commit = commits[0]["commit"] if commits else None
+    rollup = (commit or {}).get("statusCheckRollup")
+    if not commit or commit["oid"] != head or not rollup or rollup["contexts"]["pageInfo"]["hasNextPage"]:
+        return False, None
+
+    newest = {}
+    for c in rollup["contexts"]["nodes"]:
+        if not c.get("isRequired"):
+            continue
+        if c["__typename"] == "CheckRun":
+            run = (c.get("checkSuite") or {}).get("workflowRun") or {}
+            key = ("run", c.get("name"), ((run.get("workflow") or {}).get("name")), run.get("event"))
+            started, finished, passed = c.get("startedAt"), c.get("completedAt"), c.get("conclusion") == "SUCCESS"
+        else:
+            key = ("status", c.get("context"))
+            started = finished = c.get("createdAt")
+            passed = c.get("state") == "SUCCESS"
+        order = ts(started) if started else dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+        if key not in newest or order >= newest[key][0]:
+            newest[key] = (order, passed, ts(finished) if finished else None)
+    if not newest:
+        return False, None
+    passing = all(passed for _, passed, _ in newest.values())
+    times = [finished for _, _, finished in newest.values() if finished]
+    return passing, (max(times) if times else None)
 
 
 def verdict_kind(review):
     """approve | ready | changes | comment, from the verdict marker or, for older reviews, the state and body."""
     body = review.get("body") or ""
-    match = VERDICT_MARKER.search(body)
-    if match:
-        return match.group(1)
+    kinds = VERDICT_MARKER.findall(body)
+    if kinds:
+        return kinds[-1]  # the marker ends the body; an earlier one is quoted text
     if review.get("state") == "APPROVED":
         return "approve"
     if review.get("state") == "CHANGES_REQUESTED":
@@ -200,7 +249,10 @@ def evaluate(repo, me, pr):
     if replies:
         reasons.append(f"{replies} new repl{'y' if replies == 1 else 'ies'} in your threads")
 
-    bodied = [r for r in reviews if (r.get("body") or "").strip()]
+    # The latest review that carries a verdict marker; for older reviews, the latest with a body.
+    bodied = [r for r in reviews if VERDICT_MARKER.search(r.get("body") or "")] or [
+        r for r in reviews if (r.get("body") or "").strip()
+    ]
     last_verdict = max(bodied, key=lambda r: ts(r["submitted_at"])) if bodied else None
     if (
         not reasons
@@ -209,12 +261,16 @@ def evaluate(repo, me, pr):
         and verdict_kind(last_verdict) == "comment"
         and last_verdict.get("commit_id") == pr["headRefOid"]
     ):
-        if not required_checks_pass(repo, n):
+        passing, finished = False, None
+        if required_checks_pass(repo, n):
+            try:
+                passing, finished = required_checks_state(repo, n, pr["headRefOid"])
+            except (subprocess.CalledProcessError, KeyError, TypeError, ValueError):
+                pass  # unreadable this time: treat as pending so a later scan retries
+        if not passing:
             reasons.append("__checks_pending__")
-        else:
-            finished = required_checks_finished_at(repo, n)
-            if finished and finished > ts(last_verdict["submitted_at"]):
-                reasons.append("last verdict was comment-only and required checks now pass")
+        elif finished and finished > ts(last_verdict["submitted_at"]):
+            reasons.append("last verdict was comment-only and required checks now pass")
     return True, reasons, ts(latest["submitted_at"])
 
 
