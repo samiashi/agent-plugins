@@ -37,6 +37,11 @@ NOW = dt.datetime(2026, 11, 11, 12, 0, tzinfo=dt.timezone.utc)
 MARKED = pr_mod.MARKER + ": the cache key ignores the tenant."
 READY = "Reviewed at a1a1a1a. No blocking issues; ready for approval. 0 non-blocking comments inline."
 COMMENT_ONLY = "No verdict: required check `ci` is failing. 1 non-blocking finding inline."
+SKILL = REPO_ROOT / "plugins/deep-review/skills/review/SKILL.md"
+
+
+def marked_body(text, kind):
+    return f"{text}\n\n<!-- deep-review-verdict: {kind} -->"
 
 
 def ago(minutes):
@@ -199,9 +204,12 @@ class EvaluateTests(unittest.TestCase):
     def setUp(self):
         self.fake = FakeGitHub()
         self.checks = mock.Mock(return_value=True)
+        # By default the required checks finished after any review in these tests.
+        self.finished = mock.Mock(return_value=NOW)
         for patcher in (
             mock.patch.object(pr_mod, "gh", self.fake),
             mock.patch.object(pr_mod, "required_checks_pass", self.checks),
+            mock.patch.object(pr_mod, "required_checks_finished_at", self.finished),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -270,15 +278,47 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(self.evaluate()[1], [f"head moved {OLD[:10]} -> {HEAD[:10]}"])
         self.checks.assert_not_called()
 
-    # Bug: the review skill writes a comment-only body as "why there is no verdict, and the finding counts"
-    # (skills/review/SKILL.md:395), with no "Reviewed at "/"Blocking:" prefix. With no inline findings,
-    # evaluate() returns not-deep (pending_reviews.py:140-143), so the checks-now-pass follow-up never fires.
-    @unittest.expectedFailure
     def test_comment_only_review_without_findings_follows_up_when_checks_pass(self):
-        self.fake.reviews[self.key] = [review(body="No verdict: required check `ci` is failing. 0 findings.")]
+        # A clean PR reviewed comment-only because a required check failed has no inline findings;
+        # the verdict marker alone makes it a deep review.
+        body = marked_body("No verdict: required check `ci` is failing. 0 findings.", "comment")
+        self.fake.reviews[self.key] = [review(body=body)]
         deep, reasons, _ = self.evaluate()
         self.assertTrue(deep)
         self.assertEqual(reasons, ["last verdict was comment-only and required checks now pass"])
+
+    def test_checks_that_finished_before_the_comment_only_review_do_not_follow_up(self):
+        self.fake.deep_review(self.key, body=COMMENT_ONLY, at=30)
+        self.finished.return_value = NOW - dt.timedelta(minutes=45)
+        self.assertEqual(self.evaluate(), (True, [], NOW - dt.timedelta(minutes=30)))
+        self.finished.assert_called_once_with(REPO, 1)
+
+    def test_passing_checks_without_a_finish_time_do_not_follow_up(self):
+        self.fake.deep_review(self.key, body=COMMENT_ONLY)
+        self.finished.return_value = None
+        self.assertEqual(self.evaluate()[1], [])
+
+    def test_marked_ready_verdict_does_not_retrigger_whatever_its_wording(self):
+        self.fake.deep_review(self.key, body=marked_body("No blocking issues at a1a1a1a.", "ready"))
+        self.assertEqual(self.evaluate(), (True, [], NOW - dt.timedelta(minutes=90)))
+        self.checks.assert_not_called()
+
+    def test_marked_comment_verdict_follows_up_even_with_a_reviewed_at_prefix(self):
+        body = marked_body("Reviewed at a1a1a1a without a verdict: a lens could not run.", "comment")
+        self.fake.deep_review(self.key, body=body)
+        self.assertEqual(self.evaluate()[1], ["last verdict was comment-only and required checks now pass"])
+
+    def test_verdict_marker_alone_makes_a_review_deep(self):
+        for kind in ("approve", "ready", "changes", "comment"):
+            with self.subTest(kind=kind):
+                self.fake.reviews[self.key] = [review(at=30, body=marked_body("Some summary.", kind))]
+                self.fake.comments[self.key] = []
+                self.assertTrue(self.evaluate()[0])
+
+    def test_skill_documents_every_verdict_marker_the_scanner_reads(self):
+        text = SKILL.read_text()
+        for kind in pr_mod.VERDICT_KINDS:
+            self.assertIn(f"<!-- deep-review-verdict: {kind} -->", text)
 
 
 class ScanTests(StateTestCase):
@@ -287,12 +327,14 @@ class ScanTests(StateTestCase):
         self.fake = FakeGitHub()
         self.clones = {"octo/app": "/clones/app", "zeta/lib": "/clones/lib"}
         self.checks = mock.Mock(return_value=False)
+        self.finished = mock.Mock(return_value=NOW)
 
     def scan(self, review_requests=True):
         with (
             mock.patch.object(pr_mod, "gh", self.fake),
             mock.patch.object(pr_mod, "local_clones", return_value=self.clones),
             mock.patch.object(pr_mod, "required_checks_pass", self.checks),
+            mock.patch.object(pr_mod, "required_checks_finished_at", self.finished),
         ):
             return pr_mod.scan(pathlib.Path("/clones"), review_requests)
 
@@ -451,12 +493,11 @@ class ScanTests(StateTestCase):
         self.assertFalse(any(c[:2] == ("search", "prs") for c in self.fake.calls))
         self.assertFalse(any("Other/Repo" in c for c in self.fake.calls))
 
-    # Bug: a comment-only verdict posted while required checks already pass (e.g. comment-only because the
-    # PR text tried to steer the review) re-triggers a follow-up on every scan, although nothing changed
-    # since that review. pending_reviews.py:166-174 does not know whether checks passed when it was posted.
-    @unittest.expectedFailure
     def test_comment_only_verdict_posted_with_passing_checks_does_not_loop(self):
+        # Comment-only although checks already passed (e.g. the PR text tried to steer the review):
+        # nothing changed since, so it must not come back on every scan.
         self.checks.return_value = True
+        self.finished.return_value = NOW - dt.timedelta(minutes=20)
         self.track("Octo/App#1", in_progress_since=None)
         self.fake.add_pr(REPO, 1, updated=10)
         self.fake.deep_review("Octo/App#1", body=COMMENT_ONLY, at=10)
@@ -504,6 +545,33 @@ class LocalClonesTests(unittest.TestCase):
         with mock.patch.object(pr_mod.subprocess, "run") as run:
             self.assertEqual(pr_mod.local_clones(pathlib.Path("/nonexistent/clones-root")), {})
         run.assert_not_called()
+
+
+class RequiredChecksFinishedAtTests(unittest.TestCase):
+    def finished_at(self, stdout, returncode=0):
+        result = subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+        with mock.patch.object(pr_mod.subprocess, "run", return_value=result) as run:
+            return pr_mod.required_checks_finished_at(REPO, 12), run
+
+    def test_no_checks_has_no_finish_time(self):
+        for stdout in ("", "[]"):
+            with self.subTest(stdout=stdout):
+                self.assertIsNone(self.finished_at(stdout, returncode=1 if not stdout else 0)[0])
+
+    def test_returns_the_latest_completion_of_the_required_checks(self):
+        checks = [{"completedAt": ago(40)}, {"completedAt": ago(5)}, {"completedAt": ago(20)}]
+        finished, run = self.finished_at(json.dumps(checks))
+        self.assertEqual(finished, NOW - dt.timedelta(minutes=5))
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[:3], ["gh", "pr", "checks"])
+        self.assertEqual(cmd[cmd.index("--repo") + 1], REPO)
+        self.assertIn("--required", cmd)
+        self.assertIn("completedAt", cmd[cmd.index("--json") + 1].split(","))
+
+    def test_ignores_checks_that_have_not_finished(self):
+        checks = [{"completedAt": "0001-01-01T00:00:00Z"}, {"completedAt": None}, {"completedAt": ago(30)}, {}]
+        self.assertEqual(self.finished_at(json.dumps(checks))[0], NOW - dt.timedelta(minutes=30))
+        self.assertIsNone(self.finished_at(json.dumps([{"completedAt": "0001-01-01T00:00:00Z"}]))[0])
 
 
 class RequiredChecksPassTests(unittest.TestCase):

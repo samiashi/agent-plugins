@@ -394,6 +394,12 @@ Write a short review body. GitHub requires one for request changes and comment-o
 - No blocking issues, left for the user to approve: "Reviewed at <short SHA>. No blocking issues; ready for approval. N non-blocking comments inline."
 - Comment only: why there is no verdict, and the finding counts.
 
+End every review body with a hidden line that names its verdict, after a blank line. The automatic pass reads it to decide when a follow-up is due, so use exactly one of these:
+- request changes: `<!-- deep-review-verdict: changes -->`;
+- approve: `<!-- deep-review-verdict: approve -->`;
+- no blocking issues, left for the user to approve: `<!-- deep-review-verdict: ready -->`;
+- comment only: `<!-- deep-review-verdict: comment -->`.
+
 A later run on the same PR posts a fresh verdict. Its approval supersedes an earlier request for changes.
 
 *Follow-up rounds.* This run is a follow-up round when the PR already has review threads you opened in an earlier run. Those threads are by the authenticated user and open with "I checked and found this potential issue to look into".

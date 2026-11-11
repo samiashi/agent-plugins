@@ -4,6 +4,17 @@ All notable changes to the deep-review plugin. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-11
+
+### Fixed
+
+- The automatic pass no longer reviews the same PR again on every scan when its last review was comment-only and the required checks had already passed. A comment-only verdict now triggers a follow-up only once a required check finishes after that review.
+- A comment-only review with no inline findings, such as a clean PR with a failing required check, is now recognised as a deep review. Its follow-up runs once the checks pass.
+
+### Changed
+
+- Every review body now ends with a hidden verdict marker, `<!-- deep-review-verdict: approve | ready | changes | comment -->`, which the automatic pass reads instead of the body's wording. Reviews posted before this release are still read from their state and wording.
+
 ## [1.2.0] - 2026-11-11
 
 First public release.
@@ -49,5 +60,6 @@ First public release.
 - `/deep-review:auto`, a scheduled pass over review requests and follow-ups.
 - `/deep-review:setup`.
 
-[Unreleased]: https://github.com/samiashi/agent-plugins/compare/deep-review--v1.2.0...HEAD
+[Unreleased]: https://github.com/samiashi/agent-plugins/compare/deep-review--v1.2.1...HEAD
+[1.2.1]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.1
 [1.2.0]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.0

@@ -5,13 +5,16 @@ Two kinds of round:
   first      the authenticated user is directly requested as a reviewer and has
              not deep-reviewed the PR yet
   follow-up  the PR has the user's deep review (a review comment opening with the
-             skill's marker, or a review body starting with a verdict line), and
-             since the user's latest review:
+             skill's marker, or a review body carrying a verdict marker or starting
+             with a legacy verdict line), and since the user's latest review:
                - the head commit moved, or
                - someone else replied in one of the user's deep-review threads, or
                - the user's review was re-requested, or
                - the latest verdict was comment-only for lack of a verdict (not
-                 a "ready for approval" review) and every required check now passes
+                 a "ready for approval" review), every required check now passes,
+                 and at least one of them finished after that review. Checks that
+                 had already passed when the review was posted don't count, so a
+                 comment-only verdict for another reason is not reviewed again.
 
 Repositories scanned: every repository where the user is directly requested on an
 open PR (when review requests are enabled), plus every repository with a tracked
@@ -41,11 +44,16 @@ import argparse
 import datetime as dt
 import json
 import pathlib
+import re
 import subprocess
 import sys
 
 MARKER = "I checked and found this potential issue to look into"
-VERDICT_BODY_PREFIXES = ("Blocking:", "Reviewed at ")
+VERDICT_BODY_PREFIXES = ("Blocking:", "Reviewed at ")  # legacy bodies, before verdict markers
+# The review skill ends every review body with <!-- deep-review-verdict: <kind> -->.
+VERDICT_KINDS = ("approve", "ready", "changes", "comment")
+VERDICT_MARKER = re.compile(r"<!--\s*deep-review-verdict:\s*(" + "|".join(VERDICT_KINDS) + r")\s*-->")
+NOT_FINISHED = "0001-01-01T00:00:00Z"  # gh's completedAt for a check that hasn't finished
 QUIET = dt.timedelta(minutes=3)
 STALE_ROUND = dt.timedelta(minutes=60)
 STATE = None
@@ -124,6 +132,33 @@ def required_checks_pass(repo, number):
     return bool(buckets) and all(b == "pass" for b in buckets)
 
 
+def required_checks_finished_at(repo, number):
+    """When the most recently finished required check finished, or None if none has."""
+    proc = subprocess.run(
+        ["gh", "pr", "checks", str(number), "--repo", repo, "--required", "--json", "completedAt"],
+        capture_output=True,
+        text=True,
+    )
+    if not proc.stdout.strip():
+        return None
+    times = [c.get("completedAt") for c in json.loads(proc.stdout)]
+    finished = [ts(t) for t in times if t and t != NOT_FINISHED]
+    return max(finished) if finished else None
+
+
+def verdict_kind(review):
+    """approve | ready | changes | comment, from the verdict marker or, for older reviews, the state and body."""
+    body = review.get("body") or ""
+    match = VERDICT_MARKER.search(body)
+    if match:
+        return match.group(1)
+    if review.get("state") == "APPROVED":
+        return "approve"
+    if review.get("state") == "CHANGES_REQUESTED":
+        return "changes"
+    return "ready" if body.startswith("Reviewed at ") else "comment"
+
+
 def evaluate(repo, me, pr):
     """Return (is_deep_reviewed, reasons, latest_review_time) for one PR."""
     owner, name = repo.split("/")
@@ -137,7 +172,11 @@ def evaluate(repo, me, pr):
         return False, [], None
     comments = gh("api", "--paginate", f"repos/{repo}/pulls/{n}/comments")
     marked = [c for c in comments if login(c) == me and c["body"].startswith(MARKER)]
-    verdicts = [r for r in reviews if (r.get("body") or "").startswith(VERDICT_BODY_PREFIXES)]
+    verdicts = [
+        r
+        for r in reviews
+        if VERDICT_MARKER.search(r.get("body") or "") or (r.get("body") or "").startswith(VERDICT_BODY_PREFIXES)
+    ]
     latest = max(reviews, key=lambda r: ts(r["submitted_at"]))
     if not marked and not verdicts:
         return False, [], ts(latest["submitted_at"])
@@ -167,13 +206,15 @@ def evaluate(repo, me, pr):
         not reasons
         and last_verdict
         and last_verdict["state"] == "COMMENTED"
-        and not last_verdict["body"].startswith("Reviewed at ")
+        and verdict_kind(last_verdict) == "comment"
         and last_verdict.get("commit_id") == pr["headRefOid"]
     ):
-        if required_checks_pass(repo, n):
-            reasons.append("last verdict was comment-only and required checks now pass")
-        else:
+        if not required_checks_pass(repo, n):
             reasons.append("__checks_pending__")
+        else:
+            finished = required_checks_finished_at(repo, n)
+            if finished and finished > ts(last_verdict["submitted_at"]):
+                reasons.append("last verdict was comment-only and required checks now pass")
     return True, reasons, ts(latest["submitted_at"])
 
 
