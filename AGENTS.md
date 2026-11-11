@@ -30,7 +30,19 @@ This repository is a public plugin marketplace, `samiashi-plugins`, for Claude C
   - pass `${{ }}` values to scripts through `env`, not inline.
 
   zizmor and actionlint must stay clean.
-- **Dependencies:** keep every dependency on its latest major version, subject to a 6-day release-age cooldown: Dependabot `cooldown`, `.npmrc` `min-release-age` and uv `exclude-newer`. When an upgrade is blocked by the cooldown, wait for it. Don't shorten the window or add exclusions.
+- **Dependencies:** keep every dependency on its latest major version, and only adopt a release at least 6 days after it was published. The window is `COOLDOWN_DAYS` in `scripts/check_release_age.py`; CI fails if any of the following disagree with it:
+  - Dependabot's `cooldown`;
+  - `.npmrc` `min-release-age`;
+  - uv's `exclude-newer`;
+  - `.github/zizmor.yml`.
+
+  Those settings only apply when a version is first resolved, and `npm ci` and `uv sync --locked` install whatever the lockfiles pin. So, on every pull request, `check_release_age.py` rejects any npm or uv version a lockfile adds, and any new `.nvmrc`, that was published within the window. When the cooldown blocks an upgrade, wait. Don't shorten the window or add exclusions. Dependabot security updates skip the cooldown and fail that check; an admin merges those through the ruleset bypass.
+- **Pins nothing updates for you:** Dependabot covers GitHub Actions, npm and uv only. Bump these by hand, choosing the newest release that's at least 6 days old:
+  - `.nvmrc`: an exact Node LTS version, which CI age-checks;
+  - `.python-version`, and the Python matrix in `ci.yml` (keep 3.9 as the oldest);
+  - the `runs-on` runner labels;
+  - `UV_VERSION`;
+  - `ACTIONLINT_VERSION` and `ACTIONLINT_SHA256`, from the release's checksums file. When you bump it, drop any label in `.github/actionlint.yaml` that the new release recognises.
 
 ## Check your work
 
@@ -38,6 +50,9 @@ This repository is a public plugin marketplace, `samiashi-plugins`, for Claude C
 make check
 ```
 
-This runs ruff, the plugin checks, zizmor, the unit tests and `claude plugin validate`. CI also runs actionlint and the tests on the oldest and newest supported Python.
+This runs ruff, the plugin checks, the release-age check, zizmor, the unit tests and `claude plugin validate`, all against the committed `uv.lock`. CI also:
+- runs actionlint;
+- runs zizmor online, including its known-vulnerable-actions audit;
+- runs the unit tests on both the oldest and the newest supported Python.
 
 Commit messages follow Conventional Commits, for example `feat(deep-review): …`, `fix: …`, `ci: …` or `docs: …`.

@@ -18,7 +18,7 @@ Agents working in this repository should also read [AGENTS.md](AGENTS.md).
 
 ## Set up
 
-You need `git`, [uv](https://docs.astral.sh/uv/), Node.js (see `.nvmrc`) and `python3`.
+You need `git`, [uv](https://docs.astral.sh/uv/) 0.10 or later, Node.js (the version in `.nvmrc`, with npm 11.10 or later) and `python3`.
 
 ```bash
 uv sync
@@ -46,7 +46,7 @@ If a plugin has `scripts/build_codex_skills.py`, its Codex skills are generated 
 make check
 ```
 
-CI runs the same checks on every pull request, plus actionlint, on Python 3.9 and 3.15:
+CI runs the same checks on every pull request, plus actionlint. The unit tests run on both Python 3.9 and 3.15. The checks are:
 
 - **Ruff:** lint and format.
 - **Plugin checks:**
@@ -55,9 +55,13 @@ CI runs the same checks on every pull request, plus actionlint, on Python 3.9 an
   - the version has a changelog section;
   - any Codex build is current;
   - every plugin whose shipped files changed has a higher version than on `main`. Shipped files are everything except `README.md` and `CHANGELOG.md`.
+- **Release-age cooldown:**
+  - every cooldown setting is 6 days;
+  - `.nvmrc` is an exact version;
+  - every npm or uv version that a pull request adds to a lockfile, and any new `.nvmrc`, was published at least 6 days ago.
 - **Claude Code validation:** `claude plugin validate`, run on the marketplace and on each plugin.
 - **Workflow security:** zizmor and actionlint.
-- **Unit tests.**
+- **Unit tests,** including every plugin's real Codex build on each tested Python.
 
 ## Release
 
