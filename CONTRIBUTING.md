@@ -70,7 +70,7 @@ CI runs the same checks on every pull request, plus actionlint. The unit tests r
    - **minor:** new behaviour that existing users can ignore;
    - **major:** a change users must act on, such as a renamed setting or command.
 2. Move the plugin's `## [Unreleased]` notes under a new `## [x.y.z] - YYYY-MM-DD` heading.
-3. Open a pull request. When it merges and CI passes on `main`, CI tags `<plugin>--v<x.y.z>` and publishes a GitHub release. Its notes are that changelog section plus a Contributors list: the GitHub users whose commits changed the plugin since its previous release, bots excluded. Preview them with `python3 scripts/check_plugins.py release-notes <plugin> <x.y.z>`.
+3. Open a pull request. When it merges and CI passes on `main`, CI tags `<plugin>--v<x.y.z>` and publishes a GitHub release. Its notes are that changelog section plus a Contributors list. The list has everyone whose commits changed the plugin since its previous release, co-authors included and bots excluded. People with a linked GitHub account are shown as `@login`; anyone else appears by git name. Preview them with `python3 scripts/check_plugins.py release-notes <plugin> <x.y.z>`.
 
 Users only receive a change when its version changes, so never ship plugin changes without a bump. CI enforces this.
 

@@ -10,6 +10,10 @@ All notable changes to the deep-review plugin. The format follows [Keep a Change
 
 - Support for Python 3.9 and 3.10, which have both reached end of life. The plugin's scripts need Python 3.11 or later, and exit with a clear message on an older one. macOS's built-in `python3` is 3.9, so install a newer one, for example with `brew install python`. `/deep-review:setup` checks this.
 
+### Changed
+
+- `/deep-review:auto` now notifies you when its scanner fails, for example on a Python older than 3.11, instead of stopping without telling you.
+
 ## [1.2.1] - 2026-11-11
 
 ### Fixed
