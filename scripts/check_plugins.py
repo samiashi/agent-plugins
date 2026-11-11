@@ -210,14 +210,17 @@ def previous_tag(root, plugin, version):
 
 
 def github_login(repo, sha):
-    """The GitHub login that GitHub links to a commit's author, or None if there isn't one."""
+    """The GitHub login that GitHub links to a commit's author, or None if there isn't one.
+
+    Also None when GitHub can't say, for example for a commit it doesn't have yet, so a failed
+    lookup costs that person their @mention rather than the whole release.
+    """
     proc = subprocess.run(
         ["gh", "api", f"repos/{repo}/commits/{sha}", "--jq", ".author.login // empty"],
-        check=True,
         capture_output=True,
         text=True,
     )
-    return proc.stdout.strip() or None
+    return (proc.stdout.strip() or None) if proc.returncode == 0 else None
 
 
 def default_repo(root):

@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location("check_plugins", REPO / "scripts/check_plugins.py")
@@ -240,6 +241,23 @@ class ReleaseTests(unittest.TestCase):
         code, _, err = run(self.root, "notes", "demo", "3.0.0")
         self.assertEqual(code, 1)
         self.assertIn("no changelog section", err)
+
+
+class GithubLoginTests(unittest.TestCase):
+    def login(self, returncode, stdout):
+        result = subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+        with mock.patch.object(check_plugins.subprocess, "run", return_value=result) as run:
+            return check_plugins.github_login("o/r", "abc123"), run
+
+    def test_returns_the_linked_login(self):
+        login, run = self.login(0, "alice\n")
+        self.assertEqual(login, "alice")
+        self.assertEqual(run.call_args.args[0][:3], ["gh", "api", "repos/o/r/commits/abc123"])
+
+    def test_no_linked_account_or_a_failed_lookup_gives_none(self):
+        for returncode, stdout in ((0, ""), (1, ""), (1, "partial")):
+            with self.subTest(returncode=returncode, stdout=stdout):
+                self.assertIsNone(self.login(returncode, stdout)[0])
 
 
 class ReleaseNotesTests(unittest.TestCase):
