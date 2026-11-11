@@ -48,6 +48,15 @@ jobs:
           else
             uv run python scripts/check_plugins.py check
           fi
+      - name: Release-age cooldown
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            uv run --locked python scripts/check_release_age.py check --base "origin/$BASE_REF"
+          else
+            uv run --locked python scripts/check_release_age.py check
+          fi
       - name: actionlint
         run: |
           curl -fsSLo actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"

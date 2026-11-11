@@ -9,7 +9,10 @@ dev = ["ruff==0.17.3", "zizmor==1.32.0"]
 
 [tool.uv]
 package = false
-# Supply-chain cooldown: only resolve versions published at least 6 days ago.
+# uv 0.10+ reads the relative exclude-newer below.
+required-version = ">=0.10.0"
+# Release-age cooldown for versions uv resolves. `uv sync --locked` installs the lock as is,
+# so CI also runs scripts/check_release_age.py on the versions a PR adds.
 exclude-newer = "6 days"
 
 [tool.ruff]
