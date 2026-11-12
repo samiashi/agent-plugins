@@ -4,6 +4,28 @@ All notable changes to the deep-review plugin. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-11-12
+
+### Changed
+
+- **Checks no longer delay approval on protected branches.** On a branch that requires status checks, a review approves while required checks are still running or haven't run yet, because GitHub blocks the merge until they pass. Stacked PRs, whose CI often doesn't run until their parent merges, used to get no approval at all.
+  - **Failed checks:** any failed, cancelled, timed-out, stale or action-needed required check still holds approval back.
+  - **Unprotected branches:** where the branch requires no checks, every check on the PR must pass first, as before.
+  - **Unreadable checks:** if the checks or branch rules can't be read, approval is held back.
+- **Intent questions are now asked on the PR.** When an open question about intent would withhold approval, the review posts it as one inline question and keeps its thread. This applies even under a policy that otherwise posts only blocking findings. Before, the author saw approval withheld with nothing to answer.
+  - **Who can answer:** a reply from the PR's author or a maintainer settles it, in the thread or anywhere on the PR.
+  - **"Intended":** clears the question.
+  - **"Not intended":** the behavior becomes a finding, with a severity from independent triage.
+  - **Unanswered or unclear:** the question goes to you.
+- **The scanner knows what a comment-only review waits on.** It reads a new hidden `deep-review-awaiting` line.
+  - **Questions:** a review waiting only on a question no longer polls checks.
+  - **Checks:** a review waiting on checks is followed up once none is failing, not only once all have passed.
+
+### Fixed
+
+- **Replies are counted per thread**, from the time the round last read the threads (a new hidden `deep-review-read-at` line). An answer posted while a round was running is no longer lost, and nor is one followed by your own comment elsewhere on the PR.
+- **Review threads are paginated**, so a reply in a PR's 101st thread, or after a thread's first 50 comments, now starts a follow-up.
+
 ## [1.2.2] - 2026-11-11
 
 ### Removed
@@ -72,7 +94,8 @@ First public release.
 - `/deep-review:auto`, a scheduled pass over review requests and follow-ups.
 - `/deep-review:setup`.
 
-[Unreleased]: https://github.com/samiashi/agent-plugins/compare/deep-review--v1.2.2...HEAD
+[Unreleased]: https://github.com/samiashi/agent-plugins/compare/deep-review--v1.2.3...HEAD
+[1.2.3]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.3
 [1.2.2]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.2
 [1.2.1]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.1
 [1.2.0]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.0

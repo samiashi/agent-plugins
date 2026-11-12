@@ -79,13 +79,13 @@ Change these with `/deep-review:setup` or `/config`.
 | Review requested PRs automatically | on | Whether the scheduled pass reviews PRs where you're directly requested. |
 | Clones folder | `~/Documents/GitHub` | Automatic reviews only run on repositories cloned directly under this folder. |
 
-**Before you choose `automatic`:** an approval is recorded as your own review. Where one approval is enough to merge, it can start auto-merge. Check your team's change-control policy first.
+**Before you choose `automatic`:** an approval is recorded as your own review. Where one approval is enough to merge, it can start auto-merge. Check your team's change-control policy first. On a branch that requires status checks, a review approves without waiting for checks that are still running or haven't run, because GitHub blocks the merge until they pass. Anyone who can bypass the branch rules can still merge before then. A failed check always holds approval back.
 
 ## How the automatic pass behaves
 
 - **Order:** one PR per pass and one review at a time. Follow-ups go before new reviews.
-- **What starts a follow-up:** the author pushed, replied in one of your review threads, or re-requested your review. Before reviewing, it waits until the PR has been quiet for 3 minutes.
-- **What a follow-up does:** it re-reviews the new commits, then settles every earlier thread. A fixed finding is verified, replied to and resolved. A disputed one is weighed, and either withdrawn or answered once with evidence. It then posts a fresh verdict. Everything goes out as one review, so the author gets one notification.
+- **What starts a follow-up:** the author pushed, replied in one of your review threads, answered an intent question, or re-requested your review; or the checks a comment-only review waited on now allow approval. Before reviewing, it waits until the PR has been quiet for 3 minutes.
+- **What a follow-up does:** it re-reviews the new commits, then settles every earlier thread. A fixed finding is verified, replied to and resolved. A disputed one is weighed, and either withdrawn or answered once with evidence. An answered intent question is cleared, or becomes a triaged finding. It then posts a fresh verdict. Everything goes out as one review, so the author gets one notification.
 - **Follow-up rounds:** no per-PR limit; eligible new commits, replies and review requests continue to trigger reviews.
 - **Sessions:** each pass runs in its own session, named after the PR. Context carries over through the saved reports and the PR's thread history.
 
