@@ -8,17 +8,22 @@ Two kinds of round:
              skill's marker, or a review body carrying a verdict marker or starting
              with a legacy verdict line), and since the user's latest review:
                - the head commit moved, or
-               - someone else replied in one of the user's deep-review threads, or
+               - someone else replied in one of the user's deep-review threads, counted
+                 per thread from the later of the user's own last reply there and when
+                 the latest round read the threads (its read-at line), or
                - the user's review was re-requested, or
-               - the latest verdict was comment-only (not "ready for approval"),
-                 every required check now passes, and at least one of them
-                 finished after that review. A check run finishes at its
-                 completedAt and a commit status at its createdAt. Checks that had
-                 already passed when the review was posted don't count, so a
-                 comment-only verdict for another reason isn't reviewed again unless
-                 a required check finishes later. A later re-run of checks that were
-                 already green is not noticed: check runs don't change the PR's
-                 updatedAt, and the scan cache skips unchanged PRs.
+               - the latest verdict was comment-only (not "ready for approval") at the
+                 current head, and what its awaiting line waits on has changed:
+                   checks      no required check is failing, and either all pass or
+                               one finished after the review (others may be running)
+                   all-checks  every check passes, or the PR has no checks
+                   question    the PR's author commented anywhere after the read time
+                   other       nothing here; a push, reply or re-request starts a round
+                 Comment-only verdicts written before the awaiting line keep the old
+                 rule: every required check passes and one finished after the review.
+                 A check run finishes at its completedAt, a commit status at its
+                 createdAt; skipped and neutral checks pass, and cancelled, timed-out
+                 and stale ones fail.
 
 Repositories scanned: every repository where the user is directly requested on an
 open PR (when review requests are enabled), plus every repository with a tracked
@@ -65,13 +70,27 @@ VERDICT_BODY_PREFIXES = ("Blocking:", "Reviewed at ")  # legacy bodies, before v
 # The review skill ends every review body with <!-- deep-review-verdict: <kind> -->.
 VERDICT_KINDS = ("approve", "ready", "changes", "comment")
 VERDICT_MARKER = re.compile(r"<!--\s*deep-review-verdict:\s*(" + "|".join(VERDICT_KINDS) + r")\s*-->")
+# A comment-only body also says what it waits on, e.g. <!-- deep-review-awaiting: checks question -->:
+#   checks      a required check failed or couldn't be read, on a base branch that requires checks
+#   all-checks  checks on a base branch that requires none, so every check must pass
+#   question    an open intent question
+#   other       anything else
+AWAITING_KINDS = ("checks", "all-checks", "question", "other")
+AWAITING_MARKER = re.compile(r"<!--\s*deep-review-awaiting:\s*([a-z][a-z \-]*?)\s*-->")
+# Every body records when its round last read the PR's threads: <!-- deep-review-read-at: <ISO time> -->.
+READ_AT_MARKER = re.compile(r"<!--\s*deep-review-read-at:\s*([0-9][0-9T:.+\-]*Z?)\s*-->")
+FAILING_CONCLUSIONS = {"FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "CANCELLED", "STARTUP_FAILURE", "STALE"}
+PASSING_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 QUIET = dt.timedelta(minutes=3)
 STALE_ROUND = dt.timedelta(minutes=60)
 STATE = None
 
+# Each thread's opener says whose it is; its latest 50 comments hold any new replies.
 THREADS_QUERY = """
-query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){
-  reviewThreads(first:100){nodes{comments(first:50){nodes{author{login} body createdAt}}}}}}}
+query($owner:String!,$name:String!,$n:Int!,$after:String){repository(owner:$owner,name:$name){pullRequest(number:$n){
+  reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{
+    opener:comments(first:1){nodes{author{login} body createdAt}}
+    recent:comments(last:50){nodes{author{login} body createdAt}}}}}}}
 """
 
 # `gh pr checks --json completedAt` reports a zero time for commit statuses, so read the rollup directly.
@@ -79,7 +98,7 @@ CHECKS_QUERY = """
 query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){
   commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){pageInfo{hasNextPage} nodes{
     __typename
-    ... on CheckRun{name isRequired(pullRequestNumber:$n) conclusion startedAt completedAt
+    ... on CheckRun{name isRequired(pullRequestNumber:$n) status conclusion startedAt completedAt
                     checkSuite{workflowRun{event workflow{name}}}}
     ... on StatusContext{context isRequired(pullRequestNumber:$n) state createdAt}
   }}}}}}}}}
@@ -154,13 +173,16 @@ def required_checks_pass(repo, number):
     return bool(buckets) and all(b == "pass" for b in buckets)
 
 
-def required_checks_state(repo, number, head):
-    """(all required checks pass, when the last of them finished) for the PR's head commit, from one read.
+def checks_status(repo, number, head, required_only=True):
+    """(status, when the last finished check finished) for the PR's head commit, from one rollup read.
 
-    Mirrors `gh pr checks --required`: only the newest run of each check counts, and only SUCCESS passes.
-    A check run finishes at its completedAt and a commit status at its createdAt. Anything that can't be
-    judged from this read, such as another head commit, more than 100 checks or no required checks,
-    counts as not passing. Raises when gh fails, so the caller can retry later.
+    status is "failing" when any check failed, was cancelled, timed out, needs action, hit a startup
+    failure or went stale; otherwise "pending" when any is still running or queued; otherwise "pass"
+    (skipped and neutral checks count as passing, as GitHub treats them); "none" when there are no
+    checks; and "unknown" when this read can't judge, such as for another head commit or more than 100
+    checks. Only the newest run of each check counts, as in `gh pr checks`. A check run finishes at its
+    completedAt, a commit status at its createdAt. With required_only, only required checks count.
+    Raises when gh fails, so the caller can retry later.
     """
     owner, name = repo.split("/")
     data = gh(
@@ -177,30 +199,75 @@ def required_checks_state(repo, number, head):
     )
     commits = data["data"]["repository"]["pullRequest"]["commits"]["nodes"]
     commit = commits[0]["commit"] if commits else None
-    rollup = (commit or {}).get("statusCheckRollup")
-    if not commit or commit["oid"] != head or not rollup or rollup["contexts"]["pageInfo"]["hasNextPage"]:
-        return False, None
+    if not commit or commit["oid"] != head:
+        return "unknown", None
+    rollup = commit.get("statusCheckRollup")
+    if not rollup:
+        return "none", None
+    if rollup["contexts"]["pageInfo"]["hasNextPage"]:
+        return "unknown", None
 
     newest = {}
     for c in rollup["contexts"]["nodes"]:
-        if not c.get("isRequired"):
+        if required_only and not c.get("isRequired"):
             continue
         if c["__typename"] == "CheckRun":
             run = (c.get("checkSuite") or {}).get("workflowRun") or {}
             key = ("run", c.get("name"), ((run.get("workflow") or {}).get("name")), run.get("event"))
-            started, finished, passed = c.get("startedAt"), c.get("completedAt"), c.get("conclusion") == "SUCCESS"
+            started, finished, conclusion = c.get("startedAt"), c.get("completedAt"), c.get("conclusion")
+            outcome = (
+                "failing"
+                if conclusion in FAILING_CONCLUSIONS
+                else "pass"
+                if conclusion in PASSING_CONCLUSIONS
+                else "pending"
+            )
         else:
             key = ("status", c.get("context"))
             started = finished = c.get("createdAt")
-            passed = c.get("state") == "SUCCESS"
+            state = c.get("state")
+            outcome = "failing" if state in ("FAILURE", "ERROR") else "pass" if state == "SUCCESS" else "pending"
+            if outcome == "pending":
+                finished = None
         order = ts(started) if started else dt.datetime.min.replace(tzinfo=dt.UTC)
         if key not in newest or order >= newest[key][0]:
-            newest[key] = (order, passed, ts(finished) if finished else None)
+            newest[key] = (order, outcome, ts(finished) if finished and outcome != "pending" else None)
     if not newest:
-        return False, None
-    passing = all(passed for _, passed, _ in newest.values())
+        return "none", None
+    outcomes = {outcome for _, outcome, _ in newest.values()}
+    status = "failing" if "failing" in outcomes else "pending" if "pending" in outcomes else "pass"
     times = [finished for _, _, finished in newest.values() if finished]
-    return passing, (max(times) if times else None)
+    return status, (max(times) if times else None)
+
+
+def awaiting(review):
+    """What a comment-only review waits on, as a set, or None for reviews written before the awaiting line."""
+    lines = AWAITING_MARKER.findall(review.get("body") or "")
+    return set(lines[-1].split()) & set(AWAITING_KINDS) if lines else None
+
+
+def read_at(review):
+    """When the review's round last read the PR's threads, falling back to when the review was submitted."""
+    stamps = READ_AT_MARKER.findall(review.get("body") or "")
+    try:
+        return ts(stamps[-1]) if stamps else ts(review["submitted_at"])
+    except ValueError:
+        return ts(review["submitted_at"])
+
+
+def review_threads(owner, name, n):
+    """Every review thread on the PR, page by page."""
+    threads, after = [], None
+    while True:
+        args = ["api", "graphql", "-F", f"owner={owner}", "-F", f"name={name}", "-F", f"n={n}"]
+        args += ["-f", f"after={after}"] if after else []
+        data = gh(*args, "-f", f"query={THREADS_QUERY}")
+        connection = data["data"]["repository"]["pullRequest"]["reviewThreads"]
+        threads += connection.get("nodes") or []
+        page = connection.get("pageInfo") or {}
+        if not page.get("hasNextPage") or not page.get("endCursor"):
+            return threads
+        after = page["endCursor"]
 
 
 def verdict_kind(review):
@@ -220,11 +287,8 @@ def evaluate(repo, me, pr):
     """Return (is_deep_reviewed, reasons, latest_review_time) for one PR."""
     owner, name = repo.split("/")
     n = pr["number"]
-    reviews = [
-        r
-        for r in gh("api", "--paginate", f"repos/{repo}/pulls/{n}/reviews")
-        if login(r) == me and r.get("submitted_at")
-    ]
+    all_reviews = gh("api", "--paginate", f"repos/{repo}/pulls/{n}/reviews") or []
+    reviews = [r for r in all_reviews if login(r) == me and r.get("submitted_at")]
     if not reviews:
         return False, [], None
     comments = gh("api", "--paginate", f"repos/{repo}/pulls/{n}/comments")
@@ -238,22 +302,21 @@ def evaluate(repo, me, pr):
     if not marked and not verdicts:
         return False, [], ts(latest["submitted_at"])
 
-    my_last_seen = max(
-        [ts(r["submitted_at"]) for r in reviews] + [ts(c["created_at"]) for c in comments if login(c) == me]
-    )
+    # When my latest round last read the threads; replies after it (or after my own last reply in a
+    # thread) are new. Per thread, so my comments elsewhere on the PR don't hide an answer.
+    seen = read_at(latest)
     reasons = []
     if latest.get("commit_id") and latest["commit_id"] != pr["headRefOid"]:
         reasons.append(f"head moved {latest['commit_id'][:10]} -> {pr['headRefOid'][:10]}")
 
-    threads = gh(
-        "api", "graphql", "-F", f"owner={owner}", "-F", f"name={name}", "-F", f"n={n}", "-f", f"query={THREADS_QUERY}"
-    )
     replies = 0
-    for t in threads["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]:
-        cs = t["comments"]["nodes"]
-        if not cs or login(cs[0]) != me or not cs[0]["body"].startswith(MARKER):
+    for t in review_threads(owner, name, n):
+        opener = (t.get("opener") or {}).get("nodes") or []
+        if not opener or login(opener[0]) != me or not opener[0]["body"].startswith(MARKER):
             continue
-        replies += sum(1 for c in cs[1:] if login(c) != me and ts(c["createdAt"]) > my_last_seen)
+        recent = (t.get("recent") or {}).get("nodes") or []
+        since = max([seen] + [ts(c["createdAt"]) for c in recent if login(c) == me])
+        replies += sum(1 for c in recent if login(c) != me and ts(c["createdAt"]) > since)
     if replies:
         reasons.append(f"{replies} new repl{'y' if replies == 1 else 'ies'} in your threads")
 
@@ -269,17 +332,54 @@ def evaluate(repo, me, pr):
         and verdict_kind(last_verdict) == "comment"
         and last_verdict.get("commit_id") == pr["headRefOid"]
     ):
-        passing, finished = False, None
+        reasons += comment_only_follow_up(repo, n, pr, last_verdict, all_reviews)
+    return True, reasons, ts(latest["submitted_at"])
+
+
+def comment_only_follow_up(repo, n, pr, verdict, all_reviews):
+    """Reasons to follow up a comment-only verdict at the current head, by what it waits on."""
+    reviewed_at = ts(verdict["submitted_at"])
+    waits = awaiting(verdict)
+    if waits is None:  # written before the awaiting line: every required check must pass
+        status, finished = "pending", None
         if required_checks_pass(repo, n):
             try:
-                passing, finished = required_checks_state(repo, n, pr["headRefOid"])
+                status, finished = checks_status(repo, n, pr["headRefOid"])
             except (subprocess.CalledProcessError, KeyError, TypeError, ValueError):
                 pass  # unreadable this time: treat as pending so a later scan retries
-        if not passing:
+        if status != "pass":
+            return ["__checks_pending__"]
+        return (
+            ["last verdict was comment-only and required checks now pass"]
+            if finished and finished > reviewed_at
+            else []
+        )
+
+    reasons = []
+    if "question" in waits:
+        author = login(pr)
+        since = read_at(verdict)
+        if any(
+            login(r) == author and r.get("submitted_at") and ts(r["submitted_at"]) > since for r in all_reviews
+        ) or any(
+            login(c) == author and ts(c["created_at"]) > since
+            for c in gh("api", "--paginate", f"repos/{repo}/issues/{n}/comments") or []
+        ):
+            reasons.append("the author commented while an intent question was open")
+    rule = "checks" if "checks" in waits else "all-checks" if "all-checks" in waits else None
+    if rule:
+        try:
+            status, finished = checks_status(repo, n, pr["headRefOid"], required_only=rule == "checks")
+        except (subprocess.CalledProcessError, KeyError, TypeError, ValueError):
+            status, finished = "unknown", None
+        # A review only waits on checks when one failed or couldn't be read, so any pass is news.
+        if status == "pass" or (rule == "all-checks" and status == "none"):
+            reasons.append("last verdict was comment-only and the checks it waited on now allow approval")
+        elif rule == "checks" and status == "pending" and finished and finished > reviewed_at:
+            reasons.append("last verdict was comment-only and the checks it waited on now allow approval")
+        else:
             reasons.append("__checks_pending__")
-        elif finished and finished > ts(last_verdict["submitted_at"]):
-            reasons.append("last verdict was comment-only and required checks now pass")
-    return True, reasons, ts(latest["submitted_at"])
+    return reasons
 
 
 def scan(clones_root, review_requests):
