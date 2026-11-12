@@ -8,8 +8,23 @@ All notable changes to the deep-review plugin. The format follows [Keep a Change
 
 ### Changed
 
-- A review now approves while required checks are still running or haven't run yet, and holds back only when a required check has failed. GitHub won't merge into a protected branch until its required checks pass, so waiting added nothing. On stacked PRs, whose CI often doesn't run until their parent merges, it meant no approval at all.
-- When an open question about intent is all that stands between a review and approval, the review now asks it as one inline question, even under a policy that otherwise posts only blocking findings. Before, the author saw approval withheld with nothing to answer. A reply starts a follow-up round. The answer is taken as the owner's decision: intended behavior is resolved and approved, anything else becomes a finding at its triaged severity.
+- **Checks no longer delay approval on protected branches.** On a branch that requires status checks, a review approves while required checks are still running or haven't run yet, because GitHub blocks the merge until they pass. Stacked PRs, whose CI often doesn't run until their parent merges, used to get no approval at all.
+  - **Failed checks:** any failed, cancelled, timed-out, stale or action-needed required check still holds approval back.
+  - **Unprotected branches:** where the branch requires no checks, every check on the PR must pass first, as before.
+  - **Unreadable checks:** if the checks or branch rules can't be read, approval is held back.
+- **Intent questions are now asked on the PR.** When an open question about intent would withhold approval, the review posts it as one inline question and keeps its thread. This applies even under a policy that otherwise posts only blocking findings. Before, the author saw approval withheld with nothing to answer.
+  - **Who can answer:** a reply from the PR's author or a maintainer settles it, in the thread or anywhere on the PR.
+  - **"Intended":** clears the question.
+  - **"Not intended":** the behavior becomes a finding, with a severity from independent triage.
+  - **Unanswered or unclear:** the question goes to you.
+- **The scanner knows what a comment-only review waits on.** It reads a new hidden `deep-review-awaiting` line.
+  - **Questions:** a review waiting only on a question no longer polls checks.
+  - **Checks:** a review waiting on checks is followed up once none is failing, not only once all have passed.
+
+### Fixed
+
+- **Replies are counted per thread**, from the time the round last read the threads (a new hidden `deep-review-read-at` line). An answer posted while a round was running is no longer lost, and nor is one followed by your own comment elsewhere on the PR.
+- **Review threads are paginated**, so a reply in a PR's 101st thread, or after a thread's first 50 comments, now starts a follow-up.
 
 ## [1.2.2] - 2026-11-11
 
