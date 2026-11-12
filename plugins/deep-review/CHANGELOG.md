@@ -4,6 +4,13 @@ All notable changes to the deep-review plugin. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-11-12
+
+### Changed
+
+- A review now approves while required checks are still running or haven't run yet, and holds back only when a required check has failed. GitHub won't merge into a protected branch until its required checks pass, so waiting added nothing. On stacked PRs, whose CI often doesn't run until their parent merges, it meant no approval at all.
+- When an open question about intent is all that stands between a review and approval, the review now asks it as one inline question, even under a policy that otherwise posts only blocking findings. Before, the author saw approval withheld with nothing to answer. A reply starts a follow-up round. The answer is taken as the owner's decision: intended behavior is resolved and approved, anything else becomes a finding at its triaged severity.
+
 ## [1.2.2] - 2026-11-11
 
 ### Removed
@@ -72,7 +79,8 @@ First public release.
 - `/deep-review:auto`, a scheduled pass over review requests and follow-ups.
 - `/deep-review:setup`.
 
-[Unreleased]: https://github.com/samiashi/agent-plugins/compare/deep-review--v1.2.2...HEAD
+[Unreleased]: https://github.com/samiashi/agent-plugins/compare/deep-review--v1.2.3...HEAD
+[1.2.3]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.3
 [1.2.2]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.2
 [1.2.1]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.1
 [1.2.0]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.0

@@ -1,6 +1,6 @@
 {
   "name": "deep-review",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Verification-gated multi-agent code review. Reviews look past the diff, prove each finding before reporting it, and can fix, report, or comment on a PR with a verdict. An optional automation reviews PRs you're requested on and follows up when authors respond.",
   "author": {
     "name": "Sami El Achi"
