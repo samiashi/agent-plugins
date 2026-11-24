@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the Codex copies of the review and auto skills from the Claude ones.
+"""Render the Codex copies of the plugin skills from the Claude ones.
 
 skills/ stays the source of truth. Codex resolves none of Claude Code's
 substitutions (${CLAUDE_PLUGIN_ROOT}, ${CLAUDE_PLUGIN_DATA}, ${user_config.*},
@@ -54,6 +54,7 @@ COMMON = [
 
 # (old, new): each old string must occur exactly once in its skill.
 SPECIFIC = {
+    "design": [("disable-model-invocation: true\n", "")],
     "review": [
         (
             "Target and mode: $ARGUMENTS",
@@ -78,8 +79,8 @@ SPECIFIC = {
             "**Reasoning effort.** Give finder subagents high reasoning effort, and verifier, triage and fixer subagents medium.",
         ),
         (
-            "or hand them all to one `deep-review:verifier`, not one agent per thread",
-            "or hand them all to one verifier subagent, not one agent per thread",
+            "or hand the threads to one `deep-review:verifier`",
+            "or hand the threads to one verifier subagent",
         ),
         (
             "Use a `deep-review:fixer` only for a fix",
@@ -137,7 +138,7 @@ def render(name: str) -> str:
     head, sep, body = text.partition("\n---\n")
     if not sep:
         sys.exit(f"{name}: no frontmatter")
-    text = head + sep + PREAMBLE + body
+    text = head + sep + (PREAMBLE if name != "design" else "") + body
     leftover = sorted(set(LEFTOVERS.findall(text)))
     if leftover:
         sys.exit(f"{name}: Claude-only references remain: {leftover}")
@@ -149,9 +150,10 @@ def main() -> int:
     ap.add_argument("--check", action="store_true")
     check = ap.parse_args().check
     stale = []
-    for name in SPECIFIC:
-        rendered = render(name)
-        path = TARGET / name / "SKILL.md"
+    outputs = {TARGET / name / "SKILL.md": render(name) for name in SPECIFIC}
+    design_metadata = pathlib.Path("design/agents/openai.yaml")
+    outputs[TARGET / design_metadata] = (SOURCE / design_metadata).read_text()
+    for path, rendered in outputs.items():
         if check:
             if not path.exists() or path.read_text() != rendered:
                 stale.append(str(path.relative_to(ROOT)))

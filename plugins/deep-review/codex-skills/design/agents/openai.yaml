@@ -1,0 +1,5 @@
+interface:
+  display_name: "Deep design review"
+  short_description: "Stress-test a proposal before implementation"
+policy:
+  allow_implicit_invocation: false
