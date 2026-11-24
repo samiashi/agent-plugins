@@ -4,6 +4,18 @@ All notable changes to the deep-review plugin. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-24
+
+### Added
+
+- An opt-in design review for plans and proposals. Reviewers look up facts, recommend decisions in prerequisite order, and keep independent questions moving while evidence is pending.
+- Consequential review checks record what was inspected, what evidence is still needed, and which conclusions depend on it. The review withholds approval across rounds while missing evidence could hide a blocker.
+
+### Changed
+
+- Follow-ups recognize prior deep-review verdicts even without inline threads. New evidence can reopen the relevant check on the same commit.
+- Intent questions include a recommendation and what the answer changes. Owner replies settle the decision and reopen the checks that depend on it.
+
 ## [1.2.3] - 2026-11-12
 
 ### Changed
@@ -94,7 +106,8 @@ First public release.
 - `/deep-review:auto`, a scheduled pass over review requests and follow-ups.
 - `/deep-review:setup`.
 
-[Unreleased]: https://github.com/samiashi/agent-plugins/compare/deep-review--v1.2.3...HEAD
+[Unreleased]: https://github.com/samiashi/agent-plugins/compare/deep-review--v1.3.0...HEAD
+[1.3.0]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.3.0
 [1.2.3]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.3
 [1.2.2]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.2
 [1.2.1]: https://github.com/samiashi/agent-plugins/releases/tag/deep-review--v1.2.1

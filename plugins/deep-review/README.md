@@ -14,6 +14,7 @@ So the plugin:
 - maps a change's blast radius before reviewing;
 - runs independent finder agents, each on its own set of failure classes (a "lens");
 - has a fresh agent try to refute every finding, by execution where it can;
+- records evidence for requirements whose failure could block the change, including checks that find no defect;
 - tests that tests can fail, by mutation;
 - independently triages verified findings using reachability, actual impact, controls and recovery before assigning severity or a verdict;
 - reviews its own fixes as a new change.
@@ -64,9 +65,10 @@ Each release bumps the plugin's `version`, and you get it when you update. See [
 | `/deep-review:review 1234` | Reviews PR 1234 and writes a report. It changes nothing on someone else's PR. |
 | `/deep-review:review 1234 comment` | Reviews PR 1234 and posts inline comments plus a verdict, all in one review. It also posts one status comment on the PR that it keeps up to date. |
 | `/deep-review:review abc123..HEAD fix` | Reviews and fixes only the commits after `abc123`. |
+| `/deep-review:design [proposal or path]` | Reviews a plan before implementation. Proposes decisions in prerequisite order and works through them with you in conversation. |
 | `/deep-review:auto` | Runs one automatic pass now: review requests and follow-ups. |
 
-The default mode depends on who wrote the change. Your own branch or PR gets `fix`; anything else gets `report`.
+The default code-review mode depends on who wrote the change. Your own branch or PR gets `fix`; anything else gets `report`. Invoke the design review explicitly. In Codex, select the design skill and provide the proposal or its path.
 
 ## Settings
 
@@ -85,7 +87,7 @@ Change these with `/deep-review:setup` or `/config`.
 
 - **Order:** one PR per pass and one review at a time. Follow-ups go before new reviews.
 - **What starts a follow-up:** the author pushed, replied in one of your review threads, answered an intent question, or re-requested your review; or the checks a comment-only review waited on now allow approval. Before reviewing, it waits until the PR has been quiet for 3 minutes.
-- **What a follow-up does:** it re-reviews the new commits, then settles every earlier thread. A fixed finding is verified, replied to and resolved. A disputed one is weighed, and either withdrawn or answered once with evidence. An answered intent question is cleared, or becomes a triaged finding. It then posts a fresh verdict. Everything goes out as one review, so the author gets one notification.
+- **What a follow-up does:** it re-reviews the new commits, then settles every earlier thread. A fixed finding is verified, replied to and resolved. A disputed one is weighed, and either withdrawn or answered once with evidence. An answer settles the intent decision and reopens checks that depend on it. Missing evidence that could hide a blocker is carried forward, including on same-commit follow-ups. It then posts a fresh verdict. Everything goes out as one review, so the author gets one notification.
 - **Follow-up rounds:** no per-PR limit; eligible new commits, replies and review requests continue to trigger reviews.
 - **Sessions:** each pass runs in its own session, named after the PR. Context carries over through the saved reports and the PR's thread history.
 
