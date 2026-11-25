@@ -5,7 +5,7 @@ version = "0"
 requires-python = ">=3.11"
 
 [dependency-groups]
-dev = ["ruff==0.17.5", "zizmor==1.32.0"]
+dev = ["ruff==0.17.6", "zizmor==1.32.0"]
 
 [tool.uv]
 package = false
